@@ -1,5 +1,9 @@
 *~
 _*
+doxygen/
+doxyconfig.bak
+_*
+*.out
 *.o
 *.d
 *.asm
