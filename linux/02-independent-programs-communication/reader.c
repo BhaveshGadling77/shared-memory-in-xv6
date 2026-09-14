@@ -11,7 +11,7 @@ int main() {
 		exit(1);
 	}
 
-	char *ptr = shmat(shmid, 0x50000000, 0); // i can use explicit typecasting of void*
+	char *ptr = shmat(shmid, (void *)0x50000000, 0); // i can use explicit typecasting of void*
 	//instead of address u can use NULL to tell kernel 
 	// to use whatever virtual address you want to attach 
 
