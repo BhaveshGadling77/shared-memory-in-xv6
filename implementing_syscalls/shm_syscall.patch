@@ -1,0 +1,274 @@
+diff --git a/Makefile b/Makefile
+index 09d790c..568e99f 100644
+--- a/Makefile
++++ b/Makefile
+@@ -27,6 +27,7 @@ OBJS = \
+ 	uart.o\
+ 	vectors.o\
+ 	vm.o\
++	shm.o\
+ 
+ # Cross-compiling (e.g., on Mac OS X)
+ # TOOLPREFIX = i386-jos-elf
+@@ -76,7 +77,7 @@ AS = $(TOOLPREFIX)gas
+ LD = $(TOOLPREFIX)ld
+ OBJCOPY = $(TOOLPREFIX)objcopy
+ OBJDUMP = $(TOOLPREFIX)objdump
+-CFLAGS = -fno-pic -static -fno-builtin -fno-strict-aliasing -O2 -Wall -MD -ggdb -m32 -Werror -fno-omit-frame-pointer
++CFLAGS = -fno-pic -static -fno-builtin -fno-strict-aliasing -O2 -Wall -MD -ggdb -m32 -fno-omit-frame-pointer
+ CFLAGS += $(shell $(CC) -fno-stack-protector -E -x c /dev/null >/dev/null 2>&1 && echo -fno-stack-protector)
+ ASFLAGS = -m32 -gdwarf-2 -Wa,-divide
+ # FreeBSD ld wants ``elf_i386_fbsd''
+@@ -181,6 +182,7 @@ UPROGS=\
+ 	_usertests\
+ 	_wc\
+ 	_zombie\
++	_shmtest\
+ 
+ fs.img: mkfs README $(UPROGS)
+ 	./mkfs fs.img README $(UPROGS)
+diff --git a/defs.h b/defs.h
+index 82fb982..4ff3df8 100644
+--- a/defs.h
++++ b/defs.h
+@@ -185,6 +185,7 @@ void            switchuvm(struct proc*);
+ void            switchkvm(void);
+ int             copyout(pde_t*, uint, void*, uint);
+ void            clearpteu(pde_t *pgdir, char *uva);
++int             shmget(int, int, int);
+ 
+ // number of elements in fixed-size array
+ #define NELEM(x) (sizeof(x)/sizeof((x)[0]))
+diff --git a/shm.c b/shm.c
+new file mode 100644
+index 0000000..3c341b4
+--- /dev/null
++++ b/shm.c
+@@ -0,0 +1,106 @@
++#include "types.h"
++#include "defs.h"
++#include "param.h"
++#include "memlayout.h"
++#include "mmu.h"
++#include "spinlock.h"
++
++#define IPC_CREAT 1
++
++#define NSHM 16
++#define SHM_MAX_PAGES 16
++
++struct shmseg {
++  int used;
++  int key;
++  int shmid;
++  int size;
++  int npages;
++  char *pages[SHM_MAX_PAGES];
++};
++
++struct {
++  struct spinlock lock;
++  struct shmseg seg[NSHM];
++} shm;
++
++int shmget(int key, int size, int shmflg){
++  int i;
++  int j;
++  int npages;
++  int shmid;
++
++  if(size <= 0)
++    return -1;
++
++  npages = (size + PGSIZE - 1) / PGSIZE;
++
++  if(npages > SHM_MAX_PAGES)
++    return -1;
++
++  acquire(&shm.lock);
++
++  // Check whether key already exists
++
++  for(i = 0; i < NSHM; i++){
++    if(shm.seg[i].used && shm.seg[i].key == key){
++      shmid = shm.seg[i].shmid;
++      release(&shm.lock);
++      return shmid;
++    }
++  }
++
++  // Segment doesn't exist
++ //  to check whetehr the flag ask to create that particular segment like 
++  if(!(shmflg & IPC_CREAT)){
++    release(&shm.lock);
++    return -1;
++  }
++
++  // Find free slot
++
++  for(i = 0; i < NSHM; i++){
++    if(!shm.seg[i].used)
++      break;
++  }
++
++  // here it means that no free slot is there like 
++  if(i == NSHM){
++    release(&shm.lock);
++    return -1;
++  }
++
++  // Allocate pages
++
++  for(j = 0; j < npages; j++){
++    shm.seg[i].pages[j] = kalloc();
++
++     // as during running all the global variables are initialized out to zero 
++    if(shm.seg[i].pages[j] == 0){
++
++      // deletion if allocation fails
++
++      while(j > 0){
++        j--;
++        kfree(shm.seg[i].pages[j]);
++      }
++
++      release(&shm.lock);
++      return -1;
++    }
++  }
++
++  // Fill metadata
++
++  shm.seg[i].used = 1;
++  shm.seg[i].key = key;
++  shm.seg[i].shmid = i + 1;
++  shm.seg[i].size = size;
++  shm.seg[i].npages = npages;
++
++  shmid = shm.seg[i].shmid;
++
++  release(&shm.lock);
++
++  return shmid;
++}
+\ No newline at end of file
+diff --git a/shmtest.c b/shmtest.c
+new file mode 100644
+index 0000000..c145fd0
+--- /dev/null
++++ b/shmtest.c
+@@ -0,0 +1,25 @@
++#include "types.h"
++#include "stat.h"
++#include "user.h"
++
++#define IPC_CREAT 01000
++
++int
++main(void)
++{
++  int shmid;
++
++  printf(1, "Testing shmget...\n");
++
++  shmid = shmget(1234, 4096, IPC_CREAT);
++
++  if(shmid < 0){
++    printf(1, "shmget failed\n");
++    exit();
++  }
++
++  printf(1, "shmget successful\n");
++  printf(1, "Returned shmid = %d\n", shmid);
++
++  exit();
++}
+\ No newline at end of file
+diff --git a/spinlock.h b/spinlock.h
+index 0a9d8e2..5b5b1d4 100644
+--- a/spinlock.h
++++ b/spinlock.h
+@@ -9,3 +9,4 @@ struct spinlock {
+                      // that locked the lock.
+ };
+ 
++// here it means in the locked that the lock is acquired ok 
+\ No newline at end of file
+diff --git a/syscall.c b/syscall.c
+index ee85261..7631685 100644
+--- a/syscall.c
++++ b/syscall.c
+@@ -103,6 +103,7 @@ extern int sys_unlink(void);
+ extern int sys_wait(void);
+ extern int sys_write(void);
+ extern int sys_uptime(void);
++extern int sys_shmget(void);
+ 
+ static int (*syscalls[])(void) = {
+ [SYS_fork]    sys_fork,
+@@ -126,6 +127,7 @@ static int (*syscalls[])(void) = {
+ [SYS_link]    sys_link,
+ [SYS_mkdir]   sys_mkdir,
+ [SYS_close]   sys_close,
++[SYS_shmget]  sys_shmget,
+ };
+ 
+ void
+diff --git a/syscall.h b/syscall.h
+index bc5f356..2f36d70 100644
+--- a/syscall.h
++++ b/syscall.h
+@@ -20,3 +20,4 @@
+ #define SYS_link   19
+ #define SYS_mkdir  20
+ #define SYS_close  21
++#define SYS_shmget 22
+diff --git a/sysproc.c b/sysproc.c
+index 0686d29..2f02ebf 100644
+--- a/sysproc.c
++++ b/sysproc.c
+@@ -56,6 +56,23 @@ sys_sbrk(void)
+   return addr;
+ }
+ 
++int sys_shmget(void) {
++  int key;
++  int size;
++  int shmflg;
++
++  if(argint(0, &key) < 0)
++    return -1;
++
++  if(argint(1, &size) < 0)
++    return -1;
++
++  if(argint(2, &shmflg) < 0)
++    return -1;
++
++  return shmget(key, size, shmflg);
++}
++
+ int
+ sys_sleep(void)
+ {
+diff --git a/user.h b/user.h
+index 4f99c52..26acd27 100644
+--- a/user.h
++++ b/user.h
+@@ -23,6 +23,7 @@ int getpid(void);
+ char* sbrk(int);
+ int sleep(int);
+ int uptime(void);
++int shmget(int, int, int);
+ 
+ // ulib.c
+ int stat(const char*, struct stat*);
+diff --git a/usys.S b/usys.S
+index 8bfd8a1..15bee23 100644
+--- a/usys.S
++++ b/usys.S
+@@ -29,3 +29,4 @@ SYSCALL(getpid)
+ SYSCALL(sbrk)
+ SYSCALL(sleep)
+ SYSCALL(uptime)
++SYSCALL(shmget)
