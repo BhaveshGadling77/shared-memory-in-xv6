@@ -5,7 +5,7 @@
 #include "mmu.h"
 #include "spinlock.h"
 
-#define IPC_CREAT 1
+#define IPC_CREAT 01000
 
 #define NSHM 16
 #define SHM_MAX_PAGES 16
