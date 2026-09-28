@@ -35,8 +35,9 @@ int shmget(int key, int size, int shmflg){
 
   npages = (size + PGSIZE - 1) / PGSIZE;
 
-  if(npages > SHM_MAX_PAGES)
+  if(npages > SHM_MAX_PAGES) {
     return -1;
+  }
 
   acquire(&shm.lock);
 

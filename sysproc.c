@@ -56,6 +56,23 @@ sys_sbrk(void)
   return addr;
 }
 
+int sys_shmget(void) {
+  int key;
+  int size;
+  int shmflg;
+
+  if(argint(0, &key) < 0)
+    return -1;
+
+  if(argint(1, &size) < 0)
+    return -1;
+
+  if(argint(2, &shmflg) < 0)
+    return -1;
+
+  return shmget(key, size, shmflg);
+}
+
 int
 sys_sleep(void)
 {
