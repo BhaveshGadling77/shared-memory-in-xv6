@@ -106,3 +106,22 @@ sys_uptime(void)
   release(&tickslock);
   return xticks;
 }
+
+int
+sys_shmat(void)
+{
+  int shmid;
+  int shmflg;
+  int shmaddr;
+
+  if(argint(0, &shmid) < 0)
+    return -1;
+
+  if(argint(1, &shmaddr) < 0)
+    return -1;
+
+  if(argint(2, &shmflg) < 0)
+    return -1;
+
+  return (int)shmat(shmid, (const void*)shmaddr, shmflg);
+}

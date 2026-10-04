@@ -115,12 +115,34 @@ void* shmat(int shmid, const void *shmaddr, int shmflg)
   }
   
   // lets find if the any fixed virtual address is given or not.
-  if (shmaddr == 0) {
-	va = PGROUNDUP(p->sz);
+  if(shmaddr == 0) {
+    va = PGROUNDUP(p->sz);
   } else {
-	
+    va = PGROUNDDOWN((uint)shmaddr);
+  }
+
+  // shared memory should be user accessible and writable.
+  perm = PTE_W | PTE_U;
+
+  // map every page of the shared memory segment.
+  for(j = 0; j < shm.seg[i].npages; j++) {
+
+    uint pa = V2P(shm.seg[i].pages[j]);
+    //mappages internally check if the page is allocated to some other processes or not.
+    if(mappages(p->pgdir,
+                (void*)(va + j * PGSIZE),
+                PGSIZE,
+                pa,
+                perm) < 0) {
+
+      release(&shm.lock);
+      return (void*)-1;
+    }
   }
   
+  shm.seg[i].nattach++;
+
   release(&shm.lock);
-  return (void *)va;
+
+  return (void*)va;
 }
