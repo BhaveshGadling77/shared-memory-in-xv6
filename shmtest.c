@@ -1,6 +1,7 @@
 #include "types.h"
 #include "stat.h"
 #include "user.h"
+#include "shm.h"
 
 #define IPC_CREAT 01000
 

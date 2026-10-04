@@ -4,25 +4,8 @@
 #include "memlayout.h"
 #include "mmu.h"
 #include "spinlock.h"
-
-#define IPC_CREAT 01000
-
-#define NSHM 16
-#define SHM_MAX_PAGES 16
-
-struct shmseg {
-  int used;
-  int key;
-  int shmid;
-  int size;
-  int npages;
-  char *pages[SHM_MAX_PAGES];
-};
-
-struct {
-  struct spinlock lock;
-  struct shmseg seg[NSHM];
-} shm;
+#include "shm.h"
+#include "proc.h"
 
 int shmget(int key, int size, int shmflg){
   int i;
@@ -98,10 +81,46 @@ int shmget(int key, int size, int shmflg){
   shm.seg[i].shmid = i + 1;
   shm.seg[i].size = size;
   shm.seg[i].npages = npages;
+  shm.seg[i].nattach = 0;
 
   shmid = shm.seg[i].shmid;
 
   release(&shm.lock);
 
   return shmid;
+}
+
+void* shmat(int shmid, const void *shmaddr, int shmflg)
+{
+  
+  int i;
+  int j;
+  uint va;
+  int perm;
+
+  struct proc *p = myproc();
+  acquire(&shm.lock);
+
+  // first find the shm segment using loop
+  for (i = 0; i < NSHM; i++) {
+    if(shm.seg[i].used &&
+      shm.seg[i].shmid == shmid)
+      break;
+  }
+
+  //not found segment error
+  if (i == NSHM) {
+    release(&shm.lock);
+    return (void*)-1;
+  }
+  
+  // lets find if the any fixed virtual address is given or not.
+  if (shmaddr == 0) {
+	va = PGROUNDUP(p->sz);
+  } else {
+	
+  }
+  
+  release(&shm.lock);
+  return (void *)va;
 }
