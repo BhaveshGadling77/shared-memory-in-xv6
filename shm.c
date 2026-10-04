@@ -95,6 +95,7 @@ void* shmat(int shmid, const void *shmaddr, int shmflg)
   
   int i;
   int j;
+  int k;
   uint va;
   int perm;
 
@@ -139,10 +140,69 @@ void* shmat(int shmid, const void *shmaddr, int shmflg)
       return (void*)-1;
     }
   }
+
+  // i am modifying code to not remove the shared memory page after child exits
+  // record this attachment in the process
+  for(k = 0; k < MAX_SHM_ATTACH; k++) {
+    if(!p->shmattach[k].used)
+      break;
+  }
   
+  // no free attachment slot left
+  if(k == MAX_SHM_ATTACH) {
+    release(&shm.lock);
+    return (void*)-1;
+  }
+  p->shmattach[k].used = 1;
+  p->shmattach[k].shmid = shmid;
+  p->shmattach[k].va = va;
+
   shm.seg[i].nattach++;
 
   release(&shm.lock);
 
   return (void*)va;
+}
+
+// we can't use the normal exit directly for shmexit. 
+void
+shmexit(struct proc *p)
+{
+  int i, j, k;
+
+  acquire(&shm.lock);
+
+  for(k = 0; k < MAX_SHM_ATTACH; k++) {
+
+    if(!p->shmattach[k].used)
+      continue;
+
+    // Find the segment.
+    for(i = 0; i < NSHM; i++) {
+      if(shm.seg[i].used &&
+         shm.seg[i].shmid == p->shmattach[k].shmid)
+        break;
+    }
+
+    if(i == NSHM)
+      continue;
+
+    // remove this process mappings.
+    for(j = 0; j < shm.seg[i].npages; j++) {
+
+      pte_t *pte = walkpgdir(
+          p->pgdir,
+          (void*)(p->shmattach[k].va + j * PGSIZE),
+          0);
+
+      if(pte != 0 && (*pte & PTE_P))
+        *pte = 0;
+    }
+
+    shm.seg[i].nattach--;
+
+    p->shmattach[k].used = 0;
+  }
+
+  release(&shm.lock);
 }

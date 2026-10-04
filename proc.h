@@ -33,7 +33,14 @@ struct context {
 };
 
 enum procstate { UNUSED, EMBRYO, SLEEPING, RUNNABLE, RUNNING, ZOMBIE };
+// it might be bad approach but currently i can only think of this approach
+#define MAX_SHM_ATTACH 16
 
+struct shm_attachment {
+  int used;
+  int shmid;
+  uint va;
+};
 // Per-process state
 struct proc {
   uint sz;                     // Size of process memory (bytes)
@@ -49,6 +56,7 @@ struct proc {
   struct file *ofile[NOFILE];  // Open files
   struct inode *cwd;           // Current directory
   char name[16];               // Process name (debugging)
+  struct shm_attachment shmattach[MAX_SHM_ATTACH]; // Shm attachment
 };
 
 // Process memory is laid out contiguously, low addresses first:
