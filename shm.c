@@ -146,3 +146,50 @@ void* shmat(int shmid, const void *shmaddr, int shmflg)
 
   return (void*)va;
 }
+int
+is_shared_page(uint pa)
+{
+  int i;
+  int j;
+
+  acquire(&shm.lock);
+
+  for(i = 0; i < NSHM; i++) {
+    if(!shm.seg[i].used)
+      continue;
+
+    for(j = 0; j < shm.seg[i].npages; j++) {
+      if(V2P(shm.seg[i].pages[j]) == pa) {
+        release(&shm.lock);
+        return 1;
+      }
+    }
+  }
+
+  release(&shm.lock);
+  return 0;
+}
+
+int
+get_shm_segment(uint pa)
+{
+  int i;
+  int j;
+
+  acquire(&shm.lock);
+
+  for(i = 0; i < NSHM; i++) {
+    if(!shm.seg[i].used)
+      continue;
+
+    for(j = 0; j < shm.seg[i].npages; j++) {
+      if(V2P(shm.seg[i].pages[j]) == pa) {
+        release(&shm.lock);
+        return i;
+      }
+    }
+  }
+
+  release(&shm.lock);
+  return -1;
+}
