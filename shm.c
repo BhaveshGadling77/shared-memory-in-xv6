@@ -35,7 +35,7 @@ int shmget(int key, int size, int shmflg){
   }
 
   // Segment doesn't exist
- //  to check whetehr the flag ask to create that particular segment like 
+ //  to check whetehr the flag ask to create that particular segment like
   if(!(shmflg & IPC_CREAT)){
     release(&shm.lock);
     return -1;
@@ -48,7 +48,7 @@ int shmget(int key, int size, int shmflg){
       break;
   }
 
-  // here it means that no free slot is there like 
+  // here it means that no free slot is there like
   if(i == NSHM){
     release(&shm.lock);
     return -1;
@@ -59,7 +59,7 @@ int shmget(int key, int size, int shmflg){
   for(j = 0; j < npages; j++){
     shm.seg[i].pages[j] = kalloc();
 
-     // as during running all the global variables are initialized out to zero 
+     // as during running all the global variables are initialized out to zero
     if(shm.seg[i].pages[j] == 0){
 
       // deletion if allocation fails
@@ -92,7 +92,7 @@ int shmget(int key, int size, int shmflg){
 
 void* shmat(int shmid, const void *shmaddr, int shmflg)
 {
-  
+
   int i;
   int j;
   int k;
@@ -114,7 +114,7 @@ void* shmat(int shmid, const void *shmaddr, int shmflg)
     release(&shm.lock);
     return (void*)-1;
   }
-  
+
   // lets find if the any fixed virtual address is given or not.
   if(shmaddr == 0) {
     va = PGROUNDUP(p->sz);
@@ -147,7 +147,7 @@ void* shmat(int shmid, const void *shmaddr, int shmflg)
     if(!p->shmattach[k].used)
       break;
   }
-  
+
   // no free attachment slot left
   if(k == MAX_SHM_ATTACH) {
     release(&shm.lock);
