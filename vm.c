@@ -268,12 +268,21 @@ deallocuvm(pde_t *pgdir, uint oldsz, uint newsz)
       a = PGADDR(PDX(a) + 1, 0, 0) - PGSIZE;
     else if((*pte & PTE_P) != 0){
       pa = PTE_ADDR(*pte);
+
       if(pa == 0)
         panic("kfree");
-      char *v = P2V(pa);
-      kfree(v);
+
+      // Shared-memory pages must not be freed here.
+      // They may still be used by another process.
+      if(!is_shared_page(pa)){
+        char *v = P2V(pa);
+        kfree(v);
+      }
+
+      // Remove the mapping from this process.
       *pte = 0;
     }
+
   }
   return newsz;
 }

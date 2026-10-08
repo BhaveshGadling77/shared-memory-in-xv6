@@ -77,5 +77,6 @@ main(void)
     printf(1, "Parent: final shared = %d\n", *shared);
   }
   
-  return 0;
+  exit();
+  
 }

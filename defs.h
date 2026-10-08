@@ -151,7 +151,9 @@ char*           strncpy(char*, const char*, int);
 // shm.c
 int             shmget(int, int, int);
 void*           shmat(int, const void*, int);
-void            shmexit(struct proc *p);
+int             is_shared_page(uint pa);
+int             get_shm_segment(uint pa);
+
 // syscall.c
 int             argint(int, int*);
 int             argptr(int, char**, int);

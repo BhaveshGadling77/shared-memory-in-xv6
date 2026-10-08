@@ -163,46 +163,50 @@ void* shmat(int shmid, const void *shmaddr, int shmflg)
 
   return (void*)va;
 }
-
-// we can't use the normal exit directly for shmexit. 
-void
-shmexit(struct proc *p)
+int
+is_shared_page(uint pa)
 {
-  int i, j, k;
+  int i;
+  int j;
 
   acquire(&shm.lock);
 
-  for(k = 0; k < MAX_SHM_ATTACH; k++) {
-
-    if(!p->shmattach[k].used)
+  for(i = 0; i < NSHM; i++) {
+    if(!shm.seg[i].used)
       continue;
 
-    // Find the segment.
-    for(i = 0; i < NSHM; i++) {
-      if(shm.seg[i].used &&
-         shm.seg[i].shmid == p->shmattach[k].shmid)
-        break;
-    }
-
-    if(i == NSHM)
-      continue;
-
-    // remove this process mappings.
     for(j = 0; j < shm.seg[i].npages; j++) {
-
-      pte_t *pte = walkpgdir(
-          p->pgdir,
-          (void*)(p->shmattach[k].va + j * PGSIZE),
-          0);
-
-      if(pte != 0 && (*pte & PTE_P))
-        *pte = 0;
+      if(V2P(shm.seg[i].pages[j]) == pa) {
+        release(&shm.lock);
+        return 1;
+      }
     }
-
-    shm.seg[i].nattach--;
-
-    p->shmattach[k].used = 0;
   }
 
   release(&shm.lock);
+  return 0;
+}
+
+int
+get_shm_segment(uint pa)
+{
+  int i;
+  int j;
+
+  acquire(&shm.lock);
+
+  for(i = 0; i < NSHM; i++) {
+    if(!shm.seg[i].used)
+      continue;
+
+    for(j = 0; j < shm.seg[i].npages; j++) {
+      if(V2P(shm.seg[i].pages[j]) == pa) {
+        release(&shm.lock);
+        return i;
+      }
+    }
+  }
+
+  release(&shm.lock);
+  return -1;
 }
