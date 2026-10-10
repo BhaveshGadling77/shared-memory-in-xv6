@@ -42,40 +42,22 @@ main(void)
     exit();
   }
 
-  if(pid == 0) {
-    int *child_shared;
 
-    child_shared = (int*)shmat(shmid, 0, 0);
+if(pid == 0) {
+  *shared = 100;
+  printf(1, "Child: wrote shared = %d\n", *shared);
+  exit();
+} else {
+  sleep(10);
+  printf(1, "Parent: after child write = %d\n", *shared);
 
-    if(child_shared == (int*)-1) {
-      printf(1, "Child shmat failed\n");
-      exit();
-    }
+  *shared = 200;
+  printf(1, "Parent: wrote shared = %d\n", *shared);
 
-    printf(1, "Child: read shared = %d\n", *child_shared);
+  wait();
+  printf(1, "Parent: final shared = %d\n", *shared);
+}
 
-    *child_shared = 100;
-
-    printf(1, "Child: wrote shared = %d\n", *child_shared);
-
-    sleep(20);
-
-    printf(1, "Child: after parent write = %d\n", *child_shared);
-
-    exit();
-
-  } else {
-    sleep(10); //because according to selection logic parent will always run first
-    printf(1, "Parent: after child write = %d\n", *shared);
-
-    *shared = 200;
-
-    printf(1, "Parent: wrote shared = %d\n", *shared);
-
-    wait();
-
-    printf(1, "Parent: final shared = %d\n", *shared);
-  }
   
   exit();
   

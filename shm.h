@@ -1,18 +1,24 @@
 #ifndef SHM_H
 #define SHM_H
-#include "spinlock.h"
-/*Flags for shmget*/
-#define IPC_CREAT 01000
 
-/*General limits for sengment*/
+#include "spinlock.h"
+
+struct proc;
+
+#define IPC_CREAT 01000
+#define IPC_EXCL  02000
+
 #define NSHM 16
 #define SHM_MAX_PAGES 16
+#define MAX_SHM_ATTACH 16
 
-/*flags for `shmat`*/
-#define SHM_RDONLY	010000		/* attach read-only else read-write */
-#define SHM_RND		020000		/* round attach address to SHMLBA */
-#define SHM_REMAP	040000		/* take-over region on attach */
-#define SHM_EXEC	0100000		/* execution access */
+#define SHM_RDONLY 010000
+#define SHM_RND    020000
+#define SHM_REMAP  040000
+#define SHM_EXEC   0100000
+
+#define SHM_ALLOWED_FLAGS \
+  (SHM_RDONLY | SHM_RND | SHM_REMAP | SHM_EXEC)
 
 struct shmseg {
   int used;
@@ -24,8 +30,20 @@ struct shmseg {
   char *pages[SHM_MAX_PAGES];
 };
 
-struct {
+struct shmstate {
   struct spinlock lock;
   struct shmseg seg[NSHM];
-} shm;
+};
+
+extern struct shmstate shm;
+
+void shminit(void);
+int shmget(int, int, int);
+void* shmat(int, const void*, int);
+void shmexit(struct proc*);
+int shmfork(struct proc*, struct proc*);
+
+int is_shared_page(uint);
+int get_shm_segment(uint);
+
 #endif

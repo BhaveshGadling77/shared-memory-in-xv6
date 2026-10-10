@@ -40,6 +40,8 @@ struct shm_attachment {
   int used;
   int shmid;
   uint va;
+  uint npages;
+  int shmflg;
 };
 // Per-process state
 struct proc {

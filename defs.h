@@ -149,10 +149,14 @@ int             strncmp(const char*, const char*, uint);
 char*           strncpy(char*, const char*, int);
 
 // shm.c
+void            shminit(void);
 int             shmget(int, int, int);
 void*           shmat(int, const void*, int);
-int             is_shared_page(uint pa);
-int             get_shm_segment(uint pa);
+void            shmexit(struct proc*);
+int             shmfork(struct proc*, struct proc*);
+int             is_shared_page(uint);
+int             get_shm_segment(uint);
+int             shmfork(struct proc*, struct proc*);
 
 // syscall.c
 int             argint(int, int*);
