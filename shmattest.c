@@ -44,7 +44,8 @@ main(void)
 
 
 if(pid == 0) {
-  *shared = 100;
+  char *child = shmat(shmid, 0, 0);
+  *child = 100;
   printf(1, "Child: wrote shared = %d\n", *shared);
   exit();
 } else {

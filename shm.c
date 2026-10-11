@@ -130,16 +130,16 @@ void* shmat(int shmid, const void *shmaddr, int shmflg)
   }
   
   // Validate flags first.
-if(shmflg & ~(SHM_RDONLY | SHM_RND | SHM_EXEC | SHM_REMAP)) {
-  release(&shm.lock);
-  return (void*)-1;
-}
-
-// SHM_REMAP is not implemented yet.
-if(shmflg & SHM_REMAP) {
-  release(&shm.lock);
-  return (void*)-1;
-}
+  if(shmflg & ~(SHM_RDONLY | SHM_RND | SHM_EXEC | SHM_REMAP)) {
+    release(&shm.lock);
+    return (void*)-1;
+  }
+  
+  // SHM_REMAP is not implemented yet.
+  if(shmflg & SHM_REMAP) {
+    release(&shm.lock);
+    return (void*)-1;
+  }
 
   // lets find if the any fixed virtual address is given or not.
   if(shmaddr == 0) {
