@@ -5,6 +5,7 @@
 
 struct proc;
 
+#define IPC_PRIVATE 0
 #define IPC_CREAT 01000
 #define IPC_EXCL  02000
 
@@ -27,6 +28,7 @@ struct shmseg {
   int size;
   int npages;
   int nattach;
+  int creator_pid;
   char *pages[SHM_MAX_PAGES];
 };
 

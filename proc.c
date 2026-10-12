@@ -112,6 +112,8 @@ found:
   memset(p->context, 0, sizeof *p->context);
   p->context->eip = (uint)forkret;
 
+  memset(p->shmattach, 0, sizeof(p->shmattach));
+
   return p;
 }
 

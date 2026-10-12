@@ -13,13 +13,39 @@
 // library system call function. The saved user %esp points
 // to a saved program counter, and then the first argument.
 
+static int
+is_valid_user_range(uint addr, int size)
+{
+  struct proc *curproc = myproc();
+  int k;
+
+  if(size < 0 || addr + size < addr)
+    return 0;
+
+  // normal user address space
+  if(addr < curproc->sz && addr + size <= curproc->sz)
+    return 1;
+
+  // shared memory address space
+  if(addr >= SHMBASE && addr + size <= SHMLIMIT) {
+    for(k = 0; k < MAX_SHM_ATTACH; k++) {
+      if(curproc->shmattach[k].used) {
+        uint seg_start = curproc->shmattach[k].va;
+        uint seg_end = seg_start + curproc->shmattach[k].npages * PGSIZE;
+        if(addr >= seg_start && addr + size <= seg_end)
+          return 1;
+      }
+    }
+  }
+
+  return 0;
+}
+
 // Fetch the int at addr from the current process.
 int
 fetchint(uint addr, int *ip)
 {
-  struct proc *curproc = myproc();
-
-  if(addr >= curproc->sz || addr+4 > curproc->sz)
+  if(!is_valid_user_range(addr, 4))
     return -1;
   *ip = *(int*)(addr);
   return 0;
@@ -31,13 +57,29 @@ fetchint(uint addr, int *ip)
 int
 fetchstr(uint addr, char **pp)
 {
-  char *s, *ep;
+  char *s, *ep = 0;
   struct proc *curproc = myproc();
+  int k;
 
-  if(addr >= curproc->sz)
+  if(addr < curproc->sz) {
+    ep = (char*)curproc->sz;
+  } else if(addr >= SHMBASE && addr < SHMLIMIT) {
+    for(k = 0; k < MAX_SHM_ATTACH; k++) {
+      if(curproc->shmattach[k].used) {
+        uint seg_start = curproc->shmattach[k].va;
+        uint seg_end = seg_start + curproc->shmattach[k].npages * PGSIZE;
+        if(addr >= seg_start && addr < seg_end) {
+          ep = (char*)seg_end;
+          break;
+        }
+      }
+    }
+  }
+
+  if(ep == 0)
     return -1;
+
   *pp = (char*)addr;
-  ep = (char*)curproc->sz;
   for(s = *pp; s < ep; s++){
     if(*s == 0)
       return s - *pp;
@@ -59,11 +101,10 @@ int
 argptr(int n, char **pp, int size)
 {
   int i;
-  struct proc *curproc = myproc();
  
   if(argint(n, &i) < 0)
     return -1;
-  if(size < 0 || (uint)i >= curproc->sz || (uint)i+size > curproc->sz)
+  if(!is_valid_user_range((uint)i, size))
     return -1;
   *pp = (char*)i;
   return 0;

@@ -48,7 +48,7 @@ exec(char *path, char **argv)
     if(ph.memsz < ph.filesz)
       goto bad;
     if(ph.vaddr + ph.memsz < ph.vaddr ||
-      ph.vaddr + ph.memsz > SHMBASE)
+      ph.vaddr + ph.memsz + 2*PGSIZE > SHMBASE)
       goto bad;
     if((sz = allocuvm(pgdir, sz, ph.vaddr + ph.memsz)) == 0)
       goto bad;
@@ -64,6 +64,8 @@ exec(char *path, char **argv)
   // Allocate two pages at the next page boundary.
   // Make the first inaccessible.  Use the second as the user stack.
   sz = PGROUNDUP(sz);
+  if(sz + 2*PGSIZE > SHMBASE)
+    goto bad;
   if((sz = allocuvm(pgdir, sz, sz + 2*PGSIZE)) == 0)
     goto bad;
   clearpteu(pgdir, (char*)(sz - 2*PGSIZE));

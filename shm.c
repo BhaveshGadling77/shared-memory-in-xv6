@@ -21,57 +21,70 @@ int shmget(int key, int size, int shmflg){
   int npages;
   int shmid;
 
-  if(size <= 0)
+  // validate size bounds and prevent integer overflow
+  if(size < 0 || size > SHM_MAX_PAGES * PGSIZE)
     return -1;
-
-  npages = (size + PGSIZE - 1) / PGSIZE;
-
-  if(npages > SHM_MAX_PAGES) {
-    return -1;
-  }
 
   acquire(&shm.lock);
 
-  // Check whether key already exists
-
-  for(i = 0; i < NSHM; i++){
-    if(shm.seg[i].used && shm.seg[i].key == key){
-      shmid = shm.seg[i].shmid;
-      release(&shm.lock);
-      return shmid;
+  // Check whether key already exists (Bug 6: skip if key == IPC_PRIVATE)
+  if(key != IPC_PRIVATE) {
+    for(i = 0; i < NSHM; i++){
+      if(shm.seg[i].used && shm.seg[i].key == key){
+        // IPC_CREAT | IPC_EXCL fails if key exists
+        if((shmflg & IPC_CREAT) && (shmflg & IPC_EXCL)) {
+          release(&shm.lock);
+          return -1;
+        }
+        // requested size exceeds existing segment size
+        if(size > shm.seg[i].size) {
+          release(&shm.lock);
+          return -1;
+        }
+        // size == 0 should succeeds for existing segment
+        shmid = shm.seg[i].shmid;
+        release(&shm.lock);
+        return shmid;
+      }
     }
   }
 
-  // Segment doesn't exist
- //  to check whetehr the flag ask to create that particular segment like
-  if(!(shmflg & IPC_CREAT)){
+  // segment doesn't exist
+  // cannot create a new segment with size 0
+  if(size == 0) {
+    release(&shm.lock);
+    return -1;
+  }
+
+  // key doesn't exist, must have IPC_CREAT
+  if(key != IPC_PRIVATE && !(shmflg & IPC_CREAT)){
+    release(&shm.lock);
+    return -1;
+  }
+
+  npages = (size + PGSIZE - 1) / PGSIZE;
+  if(npages <= 0 || npages > SHM_MAX_PAGES) {
     release(&shm.lock);
     return -1;
   }
 
   // Find free slot
-
   for(i = 0; i < NSHM; i++){
     if(!shm.seg[i].used)
       break;
   }
 
-  // here it means that no free slot is there like
+  // No free slot available
   if(i == NSHM){
     release(&shm.lock);
     return -1;
   }
 
   // Allocate pages
-
   for(j = 0; j < npages; j++){
     shm.seg[i].pages[j] = kalloc();
 
-     // as during running all the global variables are initialized out to zero
     if(shm.seg[i].pages[j] == 0){
-
-      // deletion if allocation fails
-
       while(j > 0){
         j--;
         kfree(shm.seg[i].pages[j]);
@@ -83,17 +96,16 @@ int shmget(int key, int size, int shmflg){
     }
 
     memset(shm.seg[i].pages[j], 0, PGSIZE);
-
   }
 
   // Fill metadata
-
   shm.seg[i].used = 1;
   shm.seg[i].key = key;
   shm.seg[i].shmid = i + 1;
   shm.seg[i].size = size;
   shm.seg[i].npages = npages;
   shm.seg[i].nattach = 0;
+  shm.seg[i].creator_pid = myproc() ? myproc()->pid : 0;
 
   shmid = shm.seg[i].shmid;
 
@@ -104,11 +116,10 @@ int shmget(int key, int size, int shmflg){
 
 void* shmat(int shmid, const void *shmaddr, int shmflg)
 {
-
   int i;
   int j;
   int k;
-  uint va;
+  uint va = 0;
   uint end;
   int perm;
 
@@ -122,124 +133,169 @@ void* shmat(int shmid, const void *shmaddr, int shmflg)
       break;
   }
 
-  //not found segment error
+  // not found segment error
   if (i == NSHM) {
     cprintf("shmat: segment not found, shmid=%d\n", shmid);
     release(&shm.lock);
     return (void*)-1;
   }
   
-  // Validate flags first.
+  // Validate flags
   if(shmflg & ~(SHM_RDONLY | SHM_RND | SHM_EXEC | SHM_REMAP)) {
     release(&shm.lock);
     return (void*)-1;
   }
   
-  // SHM_REMAP is not implemented yet.
-  if(shmflg & SHM_REMAP) {
+  // SHM_REMAP requires non-null shmaddr
+  if((shmflg & SHM_REMAP) && shmaddr == 0) {
     release(&shm.lock);
     return (void*)-1;
   }
 
-  // lets find if the any fixed virtual address is given or not.
+  // automatic address selection: find free range in [SHMBASE, SHMLIMIT)
+  // this the logical schema we choosed
   if(shmaddr == 0) {
-    va = PGROUNDUP(p->sz);
+    uint try_va;
+    int found = 0;
+    uint need_bytes = shm.seg[i].npages * PGSIZE;
 
-    if(va < SHMBASE)
-      va = SHMBASE;
-  } else {
-    va = (uint)shmaddr;
+    for(try_va = SHMBASE; try_va + need_bytes <= SHMLIMIT; try_va += PGSIZE) {
+      int conflict = 0;
+      for(j = 0; j < shm.seg[i].npages; j++) {
+        pte_t *pte = walkpgdir(p->pgdir, (void*)(try_va + j * PGSIZE), 0);
+        if(pte && (*pte & PTE_P)) {
+          conflict = 1;
+          break;
+        }
+      }
+      if(!conflict) {
+        va = try_va;
+        found = 1;
+        break;
+      }
+    }
 
-  if(va % PGSIZE) {
-    if(shmflg & SHM_RND)
-      va = PGROUNDDOWN(va);
-    else {
+    if(!found) {
       release(&shm.lock);
       return (void*)-1;
     }
+  } else {
+    va = (uint)shmaddr;
+
+    if(va % PGSIZE) {
+      if(shmflg & SHM_RND)
+        va = PGROUNDDOWN(va);
+      else {
+        release(&shm.lock);
+        return (void*)-1;
+      }
+    }
   }
-}
 
-end = va + shm.seg[i].npages * PGSIZE;
+  end = va + shm.seg[i].npages * PGSIZE;
 
-if(va < SHMBASE || end < va || end > SHMLIMIT) {
-  release(&shm.lock);
-  return (void*)-1;
-}
-
-// Find a free attachment slot BEFORE mapping pages
-for(k = 0; k < MAX_SHM_ATTACH; k++) {
-  if(!p->shmattach[k].used)
-    break;
-}
-
-if(k == MAX_SHM_ATTACH) {
-  cprintf("shmat: no free attachment slot\n");
-  release(&shm.lock);
-  return (void*)-1;
-}
-
-// Ensure the target virtual addresses are unused.
-for(j = 0; j < shm.seg[i].npages; j++) {
-  pte_t *pte;
-
-  pte = walkpgdir(p->pgdir,
-                  (void*)(va + j * PGSIZE),
-                  0);
-
-  if(pte && (*pte & PTE_P)) {
+  if(va < SHMBASE || end < va || end > SHMLIMIT) {
     release(&shm.lock);
     return (void*)-1;
   }
-}
 
+  // Bug 8: If SHM_REMAP, clear existing mappings and clean overlapping attachments
+  if(shmflg & SHM_REMAP) {
+    for(j = 0; j < shm.seg[i].npages; j++) {
+      pte_t *pte = walkpgdir(p->pgdir, (void*)(va + j * PGSIZE), 0);
+      if(pte && (*pte & PTE_P)) {
+        *pte = 0;
+      }
+    }
 
-/* permission assignment */
-perm = PTE_U;
+    for(k = 0; k < MAX_SHM_ATTACH; k++) {
+      if(p->shmattach[k].used) {
+        uint a_start = p->shmattach[k].va;
+        uint a_end = a_start + p->shmattach[k].npages * PGSIZE;
+        if(a_start < end && a_end > va) {
+          int old_s;
+          for(old_s = 0; old_s < NSHM; old_s++) {
+            if(shm.seg[old_s].used && shm.seg[old_s].shmid == p->shmattach[k].shmid) {
+              if(shm.seg[old_s].nattach > 0)
+                shm.seg[old_s].nattach--;
+              break;
+            }
+          }
+          p->shmattach[k].used = 0;
+          p->shmattach[k].shmid = 0;
+          p->shmattach[k].va = 0;
+          p->shmattach[k].npages = 0;
+          p->shmattach[k].shmflg = 0;
+        }
+      }
+    }
+    if(p == myproc())
+      lcr3(V2P(p->pgdir));
+  } else {
+    // If not remapping, ensure target virtual addresses are unused
+    for(j = 0; j < shm.seg[i].npages; j++) {
+      pte_t *pte = walkpgdir(p->pgdir, (void*)(va + j * PGSIZE), 0);
+      if(pte && (*pte & PTE_P)) {
+        release(&shm.lock);
+        return (void*)-1;
+      }
+    }
+  }
 
-if(!(shmflg & SHM_RDONLY)) {
-  perm |= PTE_W;
-}
+  // find a free attachment slot BEFORE mapping pages
+  for(k = 0; k < MAX_SHM_ATTACH; k++) {
+    if(!p->shmattach[k].used)
+      break;
+  }
 
-  // // shared memory should be user accessible and writable.
-  // perm = PTE_W | PTE_U;
+  if(k == MAX_SHM_ATTACH) {
+    cprintf("shmat: no free attachment slot\n");
+    release(&shm.lock);
+    return (void*)-1;
+  }
+
+  /* permission assignment */
+  perm = PTE_U;
+
+  if(!(shmflg & SHM_RDONLY)) {
+    perm |= PTE_W;
+  }
 
   // map every page of the shared memory segment.
   for(j = 0; j < shm.seg[i].npages; j++) {
-
     uint pa = V2P(shm.seg[i].pages[j]);
-    //mappages internally check if the page is allocated to some other processes or not.
     if(mappages(p->pgdir,
             (void*)(va + j * PGSIZE),
             PGSIZE,
             pa,
             perm) < 0) {
 
-  // Remove pages mapped successfully before this failure.
-            while(j > 0) {
-              pte_t *pte;
-              j--;
+      // remove pages mapped successfully before this failure.
+      while(j > 0) {
+        pte_t *pte;
+        j--;
 
-              pte = walkpgdir(p->pgdir,
-                    (void*)(va + j * PGSIZE),
-                    0);
+        pte = walkpgdir(p->pgdir,
+              (void*)(va + j * PGSIZE),
+              0);
 
-              if(pte)
-                *pte = 0;
-            }
+        if(pte)
+          *pte = 0;
+      }
 
-      // Flush the TLB for the current process.
-            if(p == myproc())
-              lcr3(V2P(p->pgdir));
+      if(p == myproc())
+        lcr3(V2P(p->pgdir));
 
-            release(&shm.lock);
-            return (void*)-1;
+      release(&shm.lock);
+      return (void*)-1;
     } 
   }
 
   p->shmattach[k].used = 1;
   p->shmattach[k].shmid = shmid;
   p->shmattach[k].va = va;
+  p->shmattach[k].npages = shm.seg[i].npages;
+  p->shmattach[k].shmflg = shmflg;
 
   shm.seg[i].nattach++;
 
@@ -299,6 +355,25 @@ get_shm_segment(uint pa)
   return -1;
 }
 
+static void
+free_shm_segment(struct shmseg *s)
+{
+  int j;
+  for(j = 0; j < s->npages; j++) {
+    if(s->pages[j]) {
+      kfree(s->pages[j]);
+      s->pages[j] = 0;
+    }
+  }
+  s->used = 0;
+  s->key = 0;
+  s->shmid = 0;
+  s->size = 0;
+  s->npages = 0;
+  s->nattach = 0;
+  s->creator_pid = 0;
+}
+
 void
 shmexit(struct proc *p)
 {
@@ -326,7 +401,7 @@ shmexit(struct proc *p)
       s = &shm.seg[i];
       va = p->shmattach[k].va;
 
-      // Remove this process's mappings, not the physical pages.
+      // remove this process va -> pa mappings
       for(j = 0; j < s->npages; j++) {
         pte = walkpgdir(p->pgdir,
                         (void*)(va + j * PGSIZE),
@@ -336,15 +411,29 @@ shmexit(struct proc *p)
           *pte = 0;
       }
 
-      // Update the attachment count.
+      // update the attachment count.
       if(s->nattach > 0)
         s->nattach--;
+
+      // Bug 7: Free segment and pages if no processes are attached anymore
+      if(s->nattach == 0) {
+        free_shm_segment(s);
+      }
     }
 
     // Mark this attachment slot as unused.
     p->shmattach[k].used = 0;
     p->shmattach[k].shmid = 0;
     p->shmattach[k].va = 0;
+    p->shmattach[k].npages = 0;
+    p->shmattach[k].shmflg = 0;
+  }
+
+  // Bug 7: Also free any segment created by this process that was never attached
+  for(i = 0; i < NSHM; i++) {
+    if(shm.seg[i].used && shm.seg[i].creator_pid == p->pid && shm.seg[i].nattach == 0) {
+      free_shm_segment(&shm.seg[i]);
+    }
   }
 
   release(&shm.lock);
