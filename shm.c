@@ -3,12 +3,19 @@
 #include "param.h"
 #include "memlayout.h"
 #include "mmu.h"
-// #include "spinlock.h"
+#include "spinlock.h"
 #include "shm.h"
 #include "proc.h"
 #include "x86.h"
 
+struct shmstate {
+  struct spinlock lock;
+  struct shmseg seg[NSHM];
+};
+
 struct shmstate shm;
+static void free_shm_segment(struct shmseg *s);
+static int shmdt_internal(struct proc *p, uint va);
 
 void shminit(void)
 {
@@ -30,7 +37,7 @@ int shmget(int key, int size, int shmflg){
   // Check whether key already exists (Bug 6: skip if key == IPC_PRIVATE)
   if(key != IPC_PRIVATE) {
     for(i = 0; i < NSHM; i++){
-      if(shm.seg[i].used && shm.seg[i].key == key){
+      if(shm.seg[i].used && !shm.seg[i].marked_for_removal && shm.seg[i].key == key){
         // IPC_CREAT | IPC_EXCL fails if key exists
         if((shmflg & IPC_CREAT) && (shmflg & IPC_EXCL)) {
           release(&shm.lock);
@@ -106,6 +113,8 @@ int shmget(int key, int size, int shmflg){
   shm.seg[i].npages = npages;
   shm.seg[i].nattach = 0;
   shm.seg[i].creator_pid = myproc() ? myproc()->pid : 0;
+  shm.seg[i].mode = shmflg & 0777;
+  shm.seg[i].marked_for_removal = 0;
 
   shmid = shm.seg[i].shmid;
 
@@ -129,6 +138,7 @@ void* shmat(int shmid, const void *shmaddr, int shmflg)
   // first find the shm segment using loop
   for (i = 0; i < NSHM; i++) {
     if(shm.seg[i].used &&
+      !shm.seg[i].marked_for_removal &&
       shm.seg[i].shmid == shmid)
       break;
   }
@@ -199,59 +209,172 @@ void* shmat(int shmid, const void *shmaddr, int shmflg)
     return (void*)-1;
   }
 
-  // Bug 8: If SHM_REMAP, clear existing mappings and clean overlapping attachments
-  if(shmflg & SHM_REMAP) {
-    for(j = 0; j < shm.seg[i].npages; j++) {
-      pte_t *pte = walkpgdir(p->pgdir, (void*)(va + j * PGSIZE), 0);
-      if(pte && (*pte & PTE_P)) {
-        *pte = 0;
-      }
-    }
-
-    for(k = 0; k < MAX_SHM_ATTACH; k++) {
-      if(p->shmattach[k].used) {
-        uint a_start = p->shmattach[k].va;
-        uint a_end = a_start + p->shmattach[k].npages * PGSIZE;
-        if(a_start < end && a_end > va) {
-          int old_s;
-          for(old_s = 0; old_s < NSHM; old_s++) {
-            if(shm.seg[old_s].used && shm.seg[old_s].shmid == p->shmattach[k].shmid) {
-              if(shm.seg[old_s].nattach > 0)
-                shm.seg[old_s].nattach--;
-              break;
-            }
-          }
-          p->shmattach[k].used = 0;
-          p->shmattach[k].shmid = 0;
-          p->shmattach[k].va = 0;
-          p->shmattach[k].npages = 0;
-          p->shmattach[k].shmflg = 0;
-        }
-      }
-    }
-    if(p == myproc())
-      lcr3(V2P(p->pgdir));
-  } else {
-    // If not remapping, ensure target virtual addresses are unused
-    for(j = 0; j < shm.seg[i].npages; j++) {
-      pte_t *pte = walkpgdir(p->pgdir, (void*)(va + j * PGSIZE), 0);
-      if(pte && (*pte & PTE_P)) {
-        release(&shm.lock);
-        return (void*)-1;
-      }
-    }
-  }
-
-  // find a free attachment slot BEFORE mapping pages
+  // Reserve an attachment record before SHM_REMAP removes any old one.
   for(k = 0; k < MAX_SHM_ATTACH; k++) {
     if(!p->shmattach[k].used)
       break;
   }
 
   if(k == MAX_SHM_ATTACH) {
-    cprintf("shmat: no free attachment slot\n");
     release(&shm.lock);
     return (void*)-1;
+  }
+
+  // Allocate any needed page tables before changing existing mappings.
+  for(j = 0; j < shm.seg[i].npages; j++) {
+    if(walkpgdir(p->pgdir, (void*)(va + j * PGSIZE), 1) == 0) {
+      release(&shm.lock);
+      return (void*)-1;
+    }
+  }
+
+  // Bug 8: If SHM_REMAP, clear existing mappings and clean overlapping attachments
+  // if(shmflg & SHM_REMAP) {
+  //   for(j = 0; j < shm.seg[i].npages; j++) {
+  //     pte_t *pte = walkpgdir(p->pgdir, (void*)(va + j * PGSIZE), 0);
+  //     if(pte && (*pte & PTE_P)) {
+  //       *pte = 0;
+  //     }
+  //   } // this had some critical errors in it
+
+  //   for(k = 0; k < MAX_SHM_ATTACH; k++) {
+  //     if(p->shmattach[k].used) {
+  //       uint a_start = p->shmattach[k].va;
+  //       uint a_end = a_start + p->shmattach[k].npages * PGSIZE;
+  //       if(a_start < end && a_end > va) {
+  //         int old_s;
+  //         for(old_s = 0; old_s < NSHM; old_s++) {
+  //           if(shm.seg[old_s].used && shm.seg[old_s].shmid == p->shmattach[k].shmid) {
+  //             if(shm.seg[old_s].nattach > 0)
+  //               shm.seg[old_s].nattach--;
+  //             break;
+  //           }
+  //         }
+  //         p->shmattach[k].used = 0;
+  //         p->shmattach[k].shmid = 0;
+  //         p->shmattach[k].va = 0;
+  //         p->shmattach[k].npages = 0;
+  //         p->shmattach[k].shmflg = 0;
+  //       }
+  //     }
+  //   }
+  //   if(p == myproc())
+  //     lcr3(V2P(p->pgdir));
+  // } else {
+  //   // If not remapping, ensure target virtual addresses are unused
+  //   for(j = 0; j < shm.seg[i].npages; j++) {
+  //     pte_t *pte = walkpgdir(p->pgdir, (void*)(va + j * PGSIZE), 0);
+  //     if(pte && (*pte & PTE_P)) {
+  //       release(&shm.lock);
+  //       return (void*)-1;
+  //     }
+  //   }
+  // }
+
+
+  // tried to handle  SHM_REMAP safely.
+  if(shmflg & SHM_REMAP) {
+    int overlap[MAX_SHM_ATTACH];
+    int overlap_count = 0;
+    int old_s;
+    uint a_start, a_end;
+
+    // Step 1: Identify overlapping shared-memory attachments.
+    for(k = 0; k < MAX_SHM_ATTACH; k++) {
+      if(!p->shmattach[k].used)
+        continue;
+
+      a_start = p->shmattach[k].va;
+      a_end = a_start + p->shmattach[k].npages * PGSIZE;
+
+      if(a_start < end && a_end > va) {
+        // Only complete replacement is supported.
+        if(a_start < va || a_end > end) {
+          release(&shm.lock);
+          return (void*)-1;
+        }
+
+        overlap[overlap_count++] = k;
+      }
+    }
+
+    // Step 2: Reject occupied pages that aren't tracked
+    // shared-memory mappings.
+    for(j = 0; j < shm.seg[i].npages; j++) {
+      uint target = va + j * PGSIZE;
+      pte_t *pte = walkpgdir(p->pgdir, (void*)target, 0);
+      int covered = 0;
+
+      if(pte && (*pte & PTE_P)) {
+        for(k = 0; k < overlap_count; k++) {
+          int a = overlap[k];
+
+          a_start = p->shmattach[a].va;
+          a_end = a_start + p->shmattach[a].npages * PGSIZE;
+
+          if(target >= a_start && target < a_end) {
+            covered = 1;
+            break;
+          }
+        }
+
+        if(!covered) {
+          release(&shm.lock);
+          return (void*)-1;
+        }
+      }
+    }
+
+    // Step 3: Remove old mappings and update old attachments.
+    for(k = 0; k < overlap_count; k++) {
+      int a = overlap[k];
+      int old_shmid = p->shmattach[a].shmid;
+
+      a_start = p->shmattach[a].va;
+
+      for(j = 0; j < p->shmattach[a].npages; j++) {
+        pte_t *pte = walkpgdir(
+            p->pgdir, (void*)(a_start + j * PGSIZE), 0);
+
+        if(pte)
+          *pte = 0;
+      }
+
+      for(old_s = 0; old_s < NSHM; old_s++) {
+        if(shm.seg[old_s].used &&
+           shm.seg[old_s].shmid == old_shmid) {
+          if(shm.seg[old_s].nattach > 0)
+            shm.seg[old_s].nattach--;
+
+          if(shm.seg[old_s].marked_for_removal &&
+             shm.seg[old_s].nattach == 0)
+            free_shm_segment(&shm.seg[old_s]);
+
+          break;
+        }
+      }
+
+      p->shmattach[a].used = 0;
+      p->shmattach[a].shmid = 0;
+      p->shmattach[a].va = 0;
+      p->shmattach[a].npages = 0;
+      p->shmattach[a].shmflg = 0;
+    }
+
+    if(p == myproc())
+      lcr3(V2P(p->pgdir));
+
+  } else {
+    // Without SHM_REMAP, target pages must be unused.
+    for(j = 0; j < shm.seg[i].npages; j++) {
+      pte_t *pte = walkpgdir(
+          p->pgdir, (void*)(va + j * PGSIZE), 0);
+
+      if(pte && (*pte & PTE_P)) {
+        release(&shm.lock);
+        return (void*)-1;
+      }
+    }
   }
 
   /* permission assignment */
@@ -372,17 +495,249 @@ free_shm_segment(struct shmseg *s)
   s->npages = 0;
   s->nattach = 0;
   s->creator_pid = 0;
+  s->mode = 0;
+  s->marked_for_removal = 0;
+}
+
+static int
+shmdt_internal(struct proc *p, uint va)
+{
+  int i, j, k;
+  struct shmseg *s;
+  pte_t *pte;
+
+  // Find the attachment by its exact starting address.
+  for(k = 0; k < MAX_SHM_ATTACH; k++) {
+    if(p->shmattach[k].used && p->shmattach[k].va == va)
+      break;
+  }
+
+  if(k == MAX_SHM_ATTACH)
+    return -1;
+
+  // Find the segment associated with this attachment.
+  for(i = 0; i < NSHM; i++) {
+    if(shm.seg[i].used &&
+       shm.seg[i].shmid == p->shmattach[k].shmid)
+      break;
+  }
+
+  if(i == NSHM)
+    return -1;
+
+  s = &shm.seg[i];
+
+  // Remove this process's mappings, not the shared physical pages.
+  for(j = 0; j < p->shmattach[k].npages; j++) {
+    pte = walkpgdir(p->pgdir,
+                    (void*)(va + j * PGSIZE), 0);
+
+    if(pte)
+      *pte = 0;
+  }
+
+  if(s->nattach > 0)
+    s->nattach--;
+
+  // Clear the process's attachment record.
+  p->shmattach[k].used = 0;
+  p->shmattach[k].shmid = 0;
+  p->shmattach[k].va = 0;
+  p->shmattach[k].npages = 0;
+  p->shmattach[k].shmflg = 0;
+
+  // Physical pages are freed only after removal was requested
+  // and the last attachment has disappeared.
+  if(s->marked_for_removal && s->nattach == 0)
+    free_shm_segment(s);
+
+  return 0;
+}
+
+int
+shmdt(const void *shmaddr)
+{
+  struct proc *p = myproc();
+  uint va = (uint)shmaddr;
+  int result;
+
+  if(va % PGSIZE != 0)
+    return -1;
+
+  acquire(&shm.lock);
+  result = shmdt_internal(p, va);
+  release(&shm.lock);
+
+  if(result == 0 && p->pgdir != 0)
+    lcr3(V2P(p->pgdir));
+
+  return result;
+}
+
+int
+shmctl(int shmid, int cmd, void *buf)
+{
+  int i, highest;
+  int used_segments, total_pages, total_attachments;
+  struct proc *p = myproc();
+  struct shmctl_ds *ds;
+  struct shmctl_info *info;
+
+  if(cmd != IPC_RMID &&
+     cmd != IPC_SET &&
+     cmd != IPC_STAT &&
+     cmd != IPC_INFO &&
+     cmd != SHM_INFO &&
+     cmd != SHM_STAT &&
+     cmd != SHM_STAT_ANY)
+    return -1;
+
+  // All supported commands currently require a buffer.
+  if(cmd != IPC_RMID && buf == 0)
+    return -1;
+
+  acquire(&shm.lock);
+
+  /*
+   * IPC_INFO and SHM_INFO:
+   * Return information about the shared-memory subsystem.
+   */
+  if(cmd == IPC_INFO || cmd == SHM_INFO) {
+    info = (struct shmctl_info *)buf;
+
+    used_segments = 0;
+    total_pages = 0;
+    total_attachments = 0;
+    highest = -1;
+
+    for(i = 0; i < NSHM; i++) {
+      if(!shm.seg[i].used)
+        continue;
+
+      used_segments++;
+      total_pages += shm.seg[i].npages;
+      total_attachments += shm.seg[i].nattach;
+      highest = i;
+    }
+
+    info->used_segments = used_segments;
+    info->total_pages = total_pages;
+    info->total_attachments = total_attachments;
+    info->max_segments = NSHM;
+    info->max_pages_per_segment = SHM_MAX_PAGES;
+    info->max_total_pages = NSHM * SHM_MAX_PAGES;
+    info->highest_index = highest;
+
+    release(&shm.lock);
+    return highest;
+  }
+
+  /*
+   * SHM_STAT and SHM_STAT_ANY use a table index.
+   * Other commands use the actual shmid.
+   */
+  if(cmd == SHM_STAT || cmd == SHM_STAT_ANY) {
+    if(shmid < 0 || shmid >= NSHM ||
+       !shm.seg[shmid].used) {
+      release(&shm.lock);
+      return -1;
+    }
+
+    i = shmid;
+  } else {
+    for(i = 0; i < NSHM; i++) {
+      if(shm.seg[i].used &&
+         shm.seg[i].shmid == shmid)
+        break;
+    }
+
+    if(i == NSHM) {
+      release(&shm.lock);
+      return -1;
+    }
+  }
+
+  /*
+   * IPC_RMID:
+   * Mark the segment for deletion.
+   */
+  if(cmd == IPC_RMID) {
+    if(p == 0 ||
+       p->pid != shm.seg[i].creator_pid ||
+       shm.seg[i].marked_for_removal) {
+      release(&shm.lock);
+      return -1;
+    }
+
+    shm.seg[i].marked_for_removal = 1;
+
+    if(shm.seg[i].nattach == 0)
+      free_shm_segment(&shm.seg[i]);
+
+    release(&shm.lock);
+    return 0;
+  }
+
+  /*
+   * Simplified permission policy:
+   * The creator may inspect or modify a segment.
+   * SHM_STAT_ANY allows inspection without this check.
+   */
+  if(cmd != SHM_STAT_ANY &&
+     (p == 0 ||
+      p->pid != shm.seg[i].creator_pid)) {
+    release(&shm.lock);
+    return -1;
+  }
+
+  /*
+   * IPC_STAT, SHM_STAT, SHM_STAT_ANY:
+   * Fill the metadata structure.
+   */
+  if(cmd == IPC_STAT ||
+     cmd == SHM_STAT ||
+     cmd == SHM_STAT_ANY) {
+    ds = (struct shmctl_ds *)buf;
+
+    ds->shmid = shm.seg[i].shmid;
+    ds->key = shm.seg[i].key;
+    ds->size = shm.seg[i].size;
+    ds->npages = shm.seg[i].npages;
+    ds->nattach = shm.seg[i].nattach;
+    ds->creator_pid = shm.seg[i].creator_pid;
+    ds->mode = shm.seg[i].mode;
+    ds->marked_for_removal = shm.seg[i].marked_for_removal;
+
+    shmid = shm.seg[i].shmid;
+
+    release(&shm.lock);
+
+    if(cmd == IPC_STAT)
+      return 0;
+
+    return shmid;
+  }
+
+  /*
+   * IPC_SET:
+   * Update the segment's permission bits.
+   */
+  if(cmd == IPC_SET) {
+    ds = (struct shmctl_ds *)buf;
+    shm.seg[i].mode = ds->mode & 0777;
+
+    release(&shm.lock);
+    return 0;
+  }
+
+  release(&shm.lock);
+  return -1;
 }
 
 void
 shmexit(struct proc *p)
 {
-  int i;
-  int j;
   int k;
-  uint va;
-  struct shmseg *s;
-  pte_t *pte;
 
   acquire(&shm.lock);
 
@@ -390,49 +745,14 @@ shmexit(struct proc *p)
     if(!p->shmattach[k].used)
       continue;
 
-    // Find the segment associated with this attachment.
-    for(i = 0; i < NSHM; i++) {
-      if(shm.seg[i].used &&
-         shm.seg[i].shmid == p->shmattach[k].shmid)
-        break;
-    }
-
-    if(i < NSHM) {
-      s = &shm.seg[i];
-      va = p->shmattach[k].va;
-
-      // remove this process va -> pa mappings
-      for(j = 0; j < s->npages; j++) {
-        pte = walkpgdir(p->pgdir,
-                        (void*)(va + j * PGSIZE),
-                        0);
-
-        if(pte)
-          *pte = 0;
-      }
-
-      // update the attachment count.
-      if(s->nattach > 0)
-        s->nattach--;
-
-      // Bug 7: Free segment and pages if no processes are attached anymore
-      if(s->nattach == 0) {
-        free_shm_segment(s);
-      }
-    }
-
-    // Mark this attachment slot as unused.
-    p->shmattach[k].used = 0;
-    p->shmattach[k].shmid = 0;
-    p->shmattach[k].va = 0;
-    p->shmattach[k].npages = 0;
-    p->shmattach[k].shmflg = 0;
-  }
-
-  // Bug 7: Also free any segment created by this process that was never attached
-  for(i = 0; i < NSHM; i++) {
-    if(shm.seg[i].used && shm.seg[i].creator_pid == p->pid && shm.seg[i].nattach == 0) {
-      free_shm_segment(&shm.seg[i]);
+    // Reuse the same cleanup logic as shmdt().
+    if(shmdt_internal(p, p->shmattach[k].va) < 0) {
+      // Clear stale attachment metadata if cleanup fails.
+      p->shmattach[k].used = 0;
+      p->shmattach[k].shmid = 0;
+      p->shmattach[k].va = 0;
+      p->shmattach[k].npages = 0;
+      p->shmattach[k].shmflg = 0;
     }
   }
 
@@ -460,6 +780,7 @@ shmfork(struct proc *parent, struct proc *child)
 
     // Find a free attachment slot in the child.
     for(i = 0; i < MAX_SHM_ATTACH; i++) {
+      // as soon as i get an free slot i break down ok
       if(!child->shmattach[i].used)
         break;
     }
@@ -468,7 +789,7 @@ shmfork(struct proc *parent, struct proc *child)
       cprintf("shmfork: no free child attachment slot\n");
       goto bad;
     }
-    // Find the shared-memory segment.
+    // Find the shared-memory segment from the shmget like ok
     for(j = 0; j < NSHM; j++) {
       if(shm.seg[j].used &&
          shm.seg[j].shmid == parent->shmattach[k].shmid)
@@ -490,12 +811,6 @@ shmfork(struct proc *parent, struct proc *child)
       cpte = walkpgdir(child->pgdir,
                        (void*)(va + j * PGSIZE), 1);
 
-      // if(pte == 0 || !(*pte & PTE_P) ||
-      //    cpte == 0 || (*cpte & PTE_P)){
-      //    cprintf("shmfork: PTE validation failed at va 0x%x\n", va + j * PGSIZE);
-      //    goto bad;
-      // }
-
       if(pte == 0 || !(*pte & PTE_P)) {
           cprintf("shmfork: parent PTE missing at 0x%x\n",
           va + j * PGSIZE);
@@ -516,10 +831,8 @@ shmfork(struct proc *parent, struct proc *child)
 
     // Map the same physical shared pages into the child.
     for(j = 0; j < s->npages; j++) {
-      pte = walkpgdir(parent->pgdir,
-                      (void*)(va + j * PGSIZE), 0);
-      cpte = walkpgdir(child->pgdir,
-                       (void*)(va + j * PGSIZE), 0);
+      pte = walkpgdir(parent->pgdir,(void*)(va + j * PGSIZE), 0);
+      cpte = walkpgdir(child->pgdir,(void*)(va + j * PGSIZE), 0);
 
       *cpte = PTE_ADDR(*pte) | (PTE_FLAGS(*pte));
     }

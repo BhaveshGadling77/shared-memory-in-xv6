@@ -190,6 +190,7 @@ UPROGS=\
 	_shmexectest\
 	_shmrdonlytest\
 	_test1\
+	_shmfinaltest\
 
 fs.img: mkfs README $(UPROGS)
 	./mkfs fs.img README $(UPROGS)

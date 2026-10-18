@@ -25,6 +25,10 @@ int sleep(int);
 int uptime(void);
 int shmget(int, int, int);
 void* shmat(int, const void*, int);
+int shmdt(const void *);
+int shmctl(int, int, void *);
+// int shmdt(const void *);
+// int shmctl(int, int, void *);
 
 // ulib.c
 int stat(const char*, struct stat*);
