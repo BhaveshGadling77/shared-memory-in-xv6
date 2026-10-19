@@ -4,72 +4,112 @@
 
 #define PGSIZE_TEST 4096
 
+struct testcase {
+    char testname[16];
+    char path[24];
+    int expected_result;
+} testcases[] = {
+    { "shmexec.1", "no_such_program", -1 },
+    { "shmexec.2", "README", -1 }
+};
+
 int passed = 0;
 int failed = 0;
-char testname[48];
+char *p;
+char testname[16];
+
+void pass(void) {
+    printf(1, "%s pass\n", testname);
+    passed++;
+}
+
+void fail(void) {
+    printf(1, "%s fail\n", testname);
+    failed++;
+}
 
 void check(char *name, int result) {
     strcpy(testname, name);
-    if (result) {
-        printf(1, "%s pass\n", testname);
-        passed++;
-    } else {
-        printf(1, "%s fail\n", testname);
-        failed++;
-    }
+    if (result)
+        pass();
+    else
+        fail();
 }
 
 int isbad(char *p) {
     return p == (char *)-1 || p == 0;
 }
 
-int main(int argc, char *argv[]) {
-    int id, pid, w, ret;
-    char *p;
+void test(struct testcase t) {
+    char *argv[2];
+    int ret;
+
+    strcpy(testname, t.testname);
+    argv[0] = t.path;
+    argv[1] = 0;
+    ret = exec(t.path, argv);
+
+    if (ret == t.expected_result)
+        pass();
+    else
+        fail();
+}
+
+void test_exec_success(void) {
+    int pid, w;
     char *child_argv[] = { "shmexec_test", "child", 0 };
-    char *bad_argv[] = { "no_such_exec_program", 0 };
-
-    /* Reached only after the parent successfully execs this program. */
-    if (argc > 1 && strcmp(argv[1], "child") == 0) {
-        printf(1, "exec.1 successful exec pass\n");
-        exit();
-    }
-
-    id = shmget(0x590000 + getpid(), PGSIZE_TEST, IPC_CREAT | 0600);
-    check("exec.2 create segment", id >= 0);
-    if (id < 0)
-        exit();
-
-    p = (char *)shmat(id, 0, 0);
-    check("exec.3 attach before exec tests", !isbad(p));
-    if (isbad(p)) {
-        shmctl(id, IPC_RMID, 0);
-        exit();
-    }
-
-    p[0] = 'P';
-
-    ret = exec("no_such_exec_program", bad_argv);
-    check("exec.4 nonexistent program fails", ret == -1);
-    check("exec.5 mapping usable after failed exec", p[0] == 'P');
 
     pid = fork();
     if (pid == 0) {
         exec("shmexec_test", child_argv);
-        printf(1, "exec.1 successful exec fail\n");
+        printf(1, "shmexec.4 fail\n");
         exit();
     }
 
     if (pid < 0) {
-        check("exec.6 fork for successful exec", 0);
-    } else {
-        w = wait();
-        check("exec.6 wait for exec child", w == pid);
-        check("exec.7 parent mapping survives child exec", p[0] == 'P');
+        check("shmexec.4", 0);
+        return;
     }
 
-    check("exec.8 parent detach", shmdt(p) == 0);
-    check("exec.9 remove segment", shmctl(id, IPC_RMID, 0) == 0);
+    w = wait();
+    check("shmexec.5", w == pid);
+    check("shmexec.6", p[0] == 'P');
+}
+
+int main(int argc, char *argv[]) {
+    int i, id;
+
+    if (argc > 1 && strcmp(argv[1], "child") == 0) {
+        strcpy(testname, "shmexec.4");
+        pass();
+        exit();
+    }
+
+    id = shmget(0x590000 + getpid(), PGSIZE_TEST, IPC_CREAT | 0600);
+    if (id < 0) {
+        strcpy(testname, "shmexec.setup");
+        fail();
+        exit();
+    }
+
+    p = (char *)shmat(id, 0, 0);
+    if (isbad(p)) {
+        strcpy(testname, "shmexec.setup");
+        fail();
+        shmctl(id, IPC_RMID, 0);
+        exit();
+    }
+    p[0] = 'P';
+
+    for (i = 0; i < sizeof(testcases) / sizeof(testcases[0]); i++)
+        test(testcases[i]);
+
+    check("shmexec.3", p[0] == 'P');
+
+    test_exec_success();
+
+    check("shmexec.7", shmdt(p) == 0);
+    check("shmexec.8", shmctl(id, IPC_RMID, 0) == 0);
 
     printf(1, "\nPassed: %d\nFailed: %d\n", passed, failed);
     exit();
