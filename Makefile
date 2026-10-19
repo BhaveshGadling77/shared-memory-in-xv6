@@ -184,13 +184,21 @@ UPROGS=\
 	_usertests\
 	_wc\
 	_zombie\
-	_shmtest\
-	_shmattest\
-	_shmrndtest\
-	_shmexectest\
-	_shmrdonlytest\
-	_test1\
-	_shmfinaltest\
+	_shmget_test\
+	_shmat_test\
+	_shmdt_test\
+	_shmctl_test\
+	_shmfork_test\
+	_shmexec_test
+# 	_shmfinaltest\
+# 	_shmtest\
+# 	_shmattest\
+# 	_shmrndtest\
+# 	_shmexectest\
+# 	_shmrdonlytest\
+# 	_test1\
+
+	
 
 fs.img: mkfs README $(UPROGS)
 	./mkfs fs.img README $(UPROGS)
