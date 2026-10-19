@@ -228,58 +228,14 @@ void* shmat(int shmid, const void *shmaddr, int shmflg)
     }
   }
 
-  // Bug 8: If SHM_REMAP, clear existing mappings and clean overlapping attachments
-  // if(shmflg & SHM_REMAP) {
-  //   for(j = 0; j < shm.seg[i].npages; j++) {
-  //     pte_t *pte = walkpgdir(p->pgdir, (void*)(va + j * PGSIZE), 0);
-  //     if(pte && (*pte & PTE_P)) {
-  //       *pte = 0;
-  //     }
-  //   } // this had some critical errors in it
-
-  //   for(k = 0; k < MAX_SHM_ATTACH; k++) {
-  //     if(p->shmattach[k].used) {
-  //       uint a_start = p->shmattach[k].va;
-  //       uint a_end = a_start + p->shmattach[k].npages * PGSIZE;
-  //       if(a_start < end && a_end > va) {
-  //         int old_s;
-  //         for(old_s = 0; old_s < NSHM; old_s++) {
-  //           if(shm.seg[old_s].used && shm.seg[old_s].shmid == p->shmattach[k].shmid) {
-  //             if(shm.seg[old_s].nattach > 0)
-  //               shm.seg[old_s].nattach--;
-  //             break;
-  //           }
-  //         }
-  //         p->shmattach[k].used = 0;
-  //         p->shmattach[k].shmid = 0;
-  //         p->shmattach[k].va = 0;
-  //         p->shmattach[k].npages = 0;
-  //         p->shmattach[k].shmflg = 0;
-  //       }
-  //     }
-  //   }
-  //   if(p == myproc())
-  //     lcr3(V2P(p->pgdir));
-  // } else {
-  //   // If not remapping, ensure target virtual addresses are unused
-  //   for(j = 0; j < shm.seg[i].npages; j++) {
-  //     pte_t *pte = walkpgdir(p->pgdir, (void*)(va + j * PGSIZE), 0);
-  //     if(pte && (*pte & PTE_P)) {
-  //       release(&shm.lock);
-  //       return (void*)-1;
-  //     }
-  //   }
-  // }
-
-
-  // tried to handle  SHM_REMAP safely.
+  // tried to handle SHM_REMAP safely.
   if(shmflg & SHM_REMAP) {
     int overlap[MAX_SHM_ATTACH];
     int overlap_count = 0;
     int old_s;
     uint a_start, a_end;
 
-    // Step 1: Identify overlapping shared-memory attachments.
+    // Step 1: Identify overlapping shared memory attachments.
     for(k = 0; k < MAX_SHM_ATTACH; k++) {
       if(!p->shmattach[k].used)
         continue;
@@ -288,12 +244,7 @@ void* shmat(int shmid, const void *shmaddr, int shmflg)
       a_end = a_start + p->shmattach[k].npages * PGSIZE;
 
       if(a_start < end && a_end > va) {
-        // Only complete replacement is supported.
-        if(a_start < va || a_end > end) {
-          release(&shm.lock);
-          return (void*)-1;
-        }
-
+        // let's do this partial overlap is allowed
         overlap[overlap_count++] = k;
       }
     }

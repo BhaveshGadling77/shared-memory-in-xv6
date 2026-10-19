@@ -26,7 +26,7 @@ int isbad(char *p) {
 int main(int argc, char *argv[]) {
     int id, pid, w, ret;
     char *p;
-    char *child_argv[] = { "shm_exec_test", "child", 0 };
+    char *child_argv[] = { "shmexec_test", "child", 0 };
     char *bad_argv[] = { "no_such_exec_program", 0 };
 
     /* Reached only after the parent successfully execs this program. */
@@ -55,7 +55,7 @@ int main(int argc, char *argv[]) {
 
     pid = fork();
     if (pid == 0) {
-        exec("shm_exec_test", child_argv);
+        exec("shmexec_test", child_argv);
         printf(1, "exec.1 successful exec fail\n");
         exit();
     }
