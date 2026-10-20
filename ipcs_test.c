@@ -27,11 +27,22 @@ void run(char *a, char *b, char *c)
 int main(void)
 {
   int id, n, pos;
+  void *addr1, *addr2;
   char idtext[12];
 
   id = shmget(0x49504353, 4096, IPC_CREAT | 0600);
   if(id < 0) {
     printf(2, "ipcs_test: unable to create test segment\n");
+    exit();
+  }
+
+  addr1 = shmat(id, 0, 0);
+  addr2 = shmat(id, 0, 0);
+  if(addr1 == (void*)-1 || addr2 == (void*)-1) {
+    printf(2, "ipcs_test: unable to attach test segment\n");
+    if(addr1 != (void*)-1)
+      shmdt(addr1);
+    shmctl(id, IPC_RMID, 0);
     exit();
   }
 
@@ -79,6 +90,8 @@ int main(void)
   run("-m", "-i", idtext); 
   run("-a", "--id", idtext);
 
+  shmdt(addr2);
+  shmdt(addr1);
   shmctl(id, IPC_RMID, 0);
   printf(1, "ipcs_test: smoke test complete\n");
   exit();

@@ -50,7 +50,7 @@ int main(int argc, char **argv)
   struct shmctl_ds ds;
   struct shmctl_info info;
 
-  resource = 0; //expect all resource will be available.
+  resource = 0;
   format = 0;
   bytes = 0;
   human = 0;
@@ -146,8 +146,8 @@ int main(int argc, char **argv)
       exit();
     }
     printf(1, "\n Shared Memory Segment \n");
-    printf(1, "key        shmid      owner      perms      bytes      nattch\n");
-    printf(1, "0x%x     %d          %d          %o          %d          %d\n",
+    printf(1, "key          shmid      owner       perms         bytes       nattch\n");
+    printf(1, "0x%x     %d          %d          %d          %d          %d\n",
            ds.key, ds.shmid, ds.creator_pid, ds.mode, ds.size, ds.nattach);
     printf(1, "pages = %d, marked for removal = %d\n", ds.npages, ds.marked_for_removal);
     exit();
@@ -155,13 +155,13 @@ int main(int argc, char **argv)
 
   printf(1, "Shared Memory Segments\n");
   if(format == 1)
-    printf(1, "key        shmid      owner      creator\n");
+    printf(1, "key          shmid      owner     creator\n");
   else if(format == 3)
-    printf(1, "key        shmid      owner      cpid\n");
+    printf(1, "key          shmid      owner       cpid\n");
   else if(format == 4)
-    printf(1, "key        shmid      owner      perms      bytes      nattch\n");
+    printf(1, "key          shmid      owner       perms         bytes       nattch\n");
   else
-    printf(1, "key        shmid      owner      perms      bytes      nattch\n");
+    printf(1, "key          shmid      owner       perms         bytes       nattch\n");
 
   for(i = 0; i < NSHM; i++) {
     if(shmctl(i, SHM_STAT_ANY, &ds) < 0)
@@ -171,7 +171,7 @@ int main(int argc, char **argv)
     else if(format == 3)
       printf(1, "0x%x     %d          %d          %d\n\n", ds.key, ds.shmid, ds.creator_pid, ds.creator_pid);
     else
-      printf(1, "0x%x     %d          %d          %o          %d          %d\n\n",
+      printf(1, "0x%x     %d          %d          %d          %d          %d\n\n",
              ds.key, ds.shmid, ds.creator_pid, ds.mode, ds.size, ds.nattach);
   }
   exit();
