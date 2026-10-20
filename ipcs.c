@@ -44,6 +44,20 @@ int option(char *arg)
   return 0;
 }
 
+void print_mode(int mode)
+{
+  char digits[5];
+  int i;
+
+  digits[0] = '0';
+  for(i = 3; i > 0; i--) {
+    digits[i] = '0' + (mode & 7);
+    mode >>= 3;
+  }
+  digits[4] = 0;
+  printf(1, "%s", digits);
+}
+
 int main(int argc, char **argv)
 {
   int i, id, resource, format, bytes, human, show_id;
@@ -116,9 +130,6 @@ int main(int argc, char **argv)
     printf(1, "ipcs: -i requires -m or -a and a valid id\n");
     exit();
   }
-  if(resource == 0)
-    printf(1, "ipcs: queues and semaphores are unavailable; showing shared memory only\n");
-
   if(format == 2 || format == 5) {
     if(shmctl(0, SHM_INFO, &info) < 0) {
       printf(1, "ipcs: cannot get shared memory information\n");
@@ -146,33 +157,36 @@ int main(int argc, char **argv)
       exit();
     }
     printf(1, "\n Shared Memory Segment \n");
-    printf(1, "key          shmid      owner       perms         bytes       nattch\n");
-    printf(1, "0x%x     %d          %d          %d          %d          %d\n",
-           ds.key, ds.shmid, ds.creator_pid, ds.mode, ds.size, ds.nattach);
+    printf(1, "key | shmid | creator | perms | bytes | nattch\n");
+    printf(1, "0x%x | %d | %s | ", ds.key, ds.shmid, ds.creator_name);
+    print_mode(ds.mode);
+    printf(1, " | %d | %d\n", ds.size, ds.nattach);
     printf(1, "pages = %d, marked for removal = %d\n", ds.npages, ds.marked_for_removal);
     exit();
   }
 
   printf(1, "Shared Memory Segments\n");
   if(format == 1)
-    printf(1, "key          shmid      owner     creator\n");
+    printf(1, "key | shmid | creator\n");
   else if(format == 3)
-    printf(1, "key          shmid      owner       cpid\n");
+    printf(1, "key | shmid | cpid\n");
   else if(format == 4)
-    printf(1, "key          shmid      owner       perms         bytes       nattch\n");
+    printf(1, "key | shmid | creator | perms | bytes | nattch\n");
   else
-    printf(1, "key          shmid      owner       perms         bytes       nattch\n");
+    printf(1, "key | shmid | creator | perms | bytes | nattch\n");
 
   for(i = 0; i < NSHM; i++) {
     if(shmctl(i, SHM_STAT_ANY, &ds) < 0)
       continue;
     if(format == 1)
-      printf(1, "0x%x     %d          %d          %d\n\n", ds.key, ds.shmid, ds.creator_pid, ds.creator_pid);
+      printf(1, "0x%x | %d | %s\n", ds.key, ds.shmid, ds.creator_name);
     else if(format == 3)
-      printf(1, "0x%x     %d          %d          %d\n\n", ds.key, ds.shmid, ds.creator_pid, ds.creator_pid);
-    else
-      printf(1, "0x%x     %d          %d          %d          %d          %d\n\n",
-             ds.key, ds.shmid, ds.creator_pid, ds.mode, ds.size, ds.nattach);
+      printf(1, "0x%x | %d | %d\n", ds.key, ds.shmid, ds.creator_pid);
+    else {
+      printf(1, "0x%x | %d | %s | ", ds.key, ds.shmid, ds.creator_name);
+      print_mode(ds.mode);
+      printf(1, " | %d | %d\n", ds.size, ds.nattach);
+    }
   }
   exit();
 }

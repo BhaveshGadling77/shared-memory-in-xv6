@@ -113,6 +113,9 @@ int shmget(int key, int size, int shmflg){
   shm.seg[i].npages = npages;
   shm.seg[i].nattach = 0;
   shm.seg[i].creator_pid = myproc() ? myproc()->pid : 0;
+  safestrcpy(shm.seg[i].creator_name,
+             myproc() ? myproc()->name : "",
+             sizeof(shm.seg[i].creator_name));
   shm.seg[i].mode = shmflg & 0777;
   shm.seg[i].marked_for_removal = 0;
 
@@ -446,6 +449,7 @@ free_shm_segment(struct shmseg *s)
   s->npages = 0;
   s->nattach = 0;
   s->creator_pid = 0;
+  s->creator_name[0] = 0;
   s->mode = 0;
   s->marked_for_removal = 0;
 }
@@ -656,6 +660,8 @@ shmctl(int shmid, int cmd, void *buf)
     ds->npages = shm.seg[i].npages;
     ds->nattach = shm.seg[i].nattach;
     ds->creator_pid = shm.seg[i].creator_pid;
+    safestrcpy(ds->creator_name, shm.seg[i].creator_name,
+               sizeof(ds->creator_name));
     ds->mode = shm.seg[i].mode;
     ds->marked_for_removal = shm.seg[i].marked_for_removal;
 
