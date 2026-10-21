@@ -189,14 +189,14 @@ UPROGS=\
 	_shmdt_test\
 	_shmctl_test\
 	_shmfork_test\
-	_shmexec_test
-# 	_shmfinaltest\
-# 	_shmtest\
-# 	_shmattest\
-# 	_shmrndtest\
-# 	_shmexectest\
-# 	_shmrdonlytest\
-# 	_test1\
+	_shmexec_test\
+	_shmfinaltest\
+	_shmtest\
+	_shmattest\
+	_shmrndtest\
+	_shmexectest\
+	_shmrdonlytest\
+	_test1\
 
 	
 
