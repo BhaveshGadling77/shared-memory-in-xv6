@@ -41,6 +41,7 @@ struct shm_attachment {
   int shmid;
   uint va;
   uint npages;
+  uint firstpage;
   int shmflg;
 };
 // Per-process state
