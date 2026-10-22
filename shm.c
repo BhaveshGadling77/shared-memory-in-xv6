@@ -8,12 +8,12 @@
 #include "proc.h"
 #include "x86.h"
 
-struct shmstate {
+struct shmtable {
   struct spinlock lock;
   struct shmseg seg[NSHM];
 };
 
-struct shmstate shm;
+struct shmtable shm;
 static void free_shm_segment(struct shmseg *s);
 static int shmdt_internal(struct proc *p, uint va);
 
