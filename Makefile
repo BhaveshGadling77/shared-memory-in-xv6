@@ -190,8 +190,8 @@ UPROGS=\
 	_shmctl_test\
 	_shmfork_test\
 	_shmexec_test\
-	_mmap_test
-# 	_shmfinaltest\
+	_mmap_test\
+ 	_shmfinaltest\
 # 	_shmtest\
 # 	_shmattest\
 # 	_shmrndtest\
