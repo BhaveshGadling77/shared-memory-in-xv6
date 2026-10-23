@@ -192,13 +192,7 @@ UPROGS=\
 	_shmctl_test\
 	_shmfork_test\
 	_shmexec_test
-# 	_shmfinaltest\
-# 	_shmtest\
-# 	_shmattest\
-# 	_shmrndtest\
-# 	_shmexectest\
-# 	_shmrdonlytest\
-# 	_test1\
+
 
 	
 
