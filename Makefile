@@ -191,13 +191,6 @@ UPROGS=\
 	_shmfork_test\
 	_shmexec_test\
 	_mmap_test\
- 	_shmfinaltest\
-# 	_shmtest\
-# 	_shmattest\
-# 	_shmrndtest\
-# 	_shmexectest\
-# 	_shmrdonlytest\
-# 	_test1\
 
 	
 

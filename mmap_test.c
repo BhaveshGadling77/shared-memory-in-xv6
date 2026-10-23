@@ -13,7 +13,7 @@ main(int argc, char *argv[])
 
   passed = failed = 0;
 
-  // An invalid descriptor must be rejected.
+  // An invalid descriptor must be rejected!!
   addr = mmap(0, TEST_PGSIZE, PROT_READ | PROT_WRITE,
               MAP_SHARED, -1, 0);
   if(addr == (void*)-1){
