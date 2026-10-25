@@ -15,6 +15,7 @@
 #include "sleeplock.h"
 #include "file.h"
 #include "fcntl.h"
+#include "shm.h"
 
 // Fetch the nth word-sized system call argument as a file descriptor
 // and return both the descriptor and the corresponding struct file.
@@ -112,6 +113,24 @@ sys_fstat(void)
   if(argfd(0, 0, &f) < 0 || argptr(1, (void*)&st, sizeof(*st)) < 0)
     return -1;
   return filestat(f, st);
+}
+
+// map a POSIX shared memory object into the current process.
+int
+sys_mmap(void)
+{
+  int addr, length, prot, flags, offset;
+  struct file *f;
+
+  if(argint(0, &addr) < 0 || argint(1, &length) < 0 ||
+     argint(2, &prot) < 0 || argint(3, &flags) < 0 ||
+     argfd(4, 0, &f) < 0 || argint(5, &offset) < 0 ||
+     f->type != FD_SHM || length <= 0 || offset < 0 ||
+     (prot & ~(PROT_READ | PROT_WRITE | PROT_EXEC)) ||
+     (flags != MAP_SHARED && flags != (MAP_SHARED | MAP_FIXED)))
+    return -1;
+  return (int)shm_map(f->shmid, (const void*)addr,
+                      (uint)length, (uint)offset, prot, flags);
 }
 
 // Create the path new as a link to the same inode as old.

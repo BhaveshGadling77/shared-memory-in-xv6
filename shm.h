@@ -16,6 +16,13 @@ struct proc;
 #define SHM_REMAP  040000
 #define SHM_EXEC   0100000
 
+#define PROT_READ  0x1
+#define PROT_WRITE 0x2
+#define PROT_EXEC  0x4
+#define MAP_SHARED 0x1
+#define MAP_PRIVATE 0x2
+#define MAP_FIXED  0x10
+
 #define IPC_RMID      0
 #define IPC_SET       1
 #define IPC_STAT      2
@@ -81,6 +88,8 @@ int is_shared_page(uint);
 int get_shm_segment(uint);
 int shmdt(const void *);
 int shmctl(int shmid, int cmd, void *buf);
+void* shm_map(int shmid, const void *addr, uint length, uint offset,
+              int prot, int flags);
 // int shmctl(int shmid, int cmd, struct shmid_ds *buf);
 
 #endif

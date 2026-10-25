@@ -318,6 +318,7 @@ void* shmat(int shmid, const void *shmaddr, int shmflg)
       p->shmattach[a].shmid = 0;
       p->shmattach[a].va = 0;
       p->shmattach[a].npages = 0;
+      p->shmattach[a].firstpage = 0;
       p->shmattach[a].shmflg = 0;
     }
 
@@ -379,6 +380,7 @@ void* shmat(int shmid, const void *shmaddr, int shmflg)
   p->shmattach[k].shmid = shmid;
   p->shmattach[k].va = va;
   p->shmattach[k].npages = shm.seg[i].npages;
+  p->shmattach[k].firstpage = 0;
   p->shmattach[k].shmflg = shmflg;
 
   shm.seg[i].nattach++;
@@ -512,6 +514,7 @@ shmdt_internal(struct proc *p, uint va)
   p->shmattach[k].shmid = 0;
   p->shmattach[k].va = 0;
   p->shmattach[k].npages = 0;
+  p->shmattach[k].firstpage = 0;
   p->shmattach[k].shmflg = 0;
 
   // Physical pages are freed only after removal was requested
@@ -723,6 +726,7 @@ shmexit(struct proc *p)
       p->shmattach[k].shmid = 0;
       p->shmattach[k].va = 0;
       p->shmattach[k].npages = 0;
+      p->shmattach[k].firstpage = 0;
       p->shmattach[k].shmflg = 0;
     }
   }
@@ -780,7 +784,7 @@ shmfork(struct proc *parent, struct proc *child)
 
     // Verify that the child's corresponding pages exist
     // and are not already mapped.
-    for(j = 0; j < s->npages; j++) {
+    for(j = 0; j < parent->shmattach[k].npages; j++) {
       pte = walkpgdir(parent->pgdir,
                       (void*)(va + j * PGSIZE), 0);
       cpte = walkpgdir(child->pgdir,
@@ -806,7 +810,7 @@ shmfork(struct proc *parent, struct proc *child)
     }
 
     // Map the same physical shared pages into the child.
-    for(j = 0; j < s->npages; j++) {
+    for(j = 0; j < parent->shmattach[k].npages; j++) {
       pte = walkpgdir(parent->pgdir,(void*)(va + j * PGSIZE), 0);
       cpte = walkpgdir(child->pgdir,(void*)(va + j * PGSIZE), 0);
 
@@ -818,6 +822,7 @@ shmfork(struct proc *parent, struct proc *child)
     child->shmattach[i].shmid = parent->shmattach[k].shmid;
     child->shmattach[i].va = va;
     child->shmattach[i].npages = parent->shmattach[k].npages;
+    child->shmattach[i].firstpage = parent->shmattach[k].firstpage;
     child->shmattach[i].shmflg = parent->shmattach[k].shmflg;
 
     s->nattach++;
@@ -843,7 +848,7 @@ bad:
       s = &shm.seg[i];
       va = child->shmattach[k].va;
 
-      for(j = 0; j < s->npages; j++) {
+      for(j = 0; j < child->shmattach[k].npages; j++) {
         pte = walkpgdir(child->pgdir,
                         (void*)(va + j * PGSIZE), 0);
         if(pte)
@@ -858,9 +863,129 @@ bad:
     child->shmattach[k].shmid = 0;
     child->shmattach[k].va = 0;
     child->shmattach[k].npages = 0;
+    child->shmattach[k].firstpage = 0;
     child->shmattach[k].shmflg = 0;
   }
 
   release(&shm.lock);
   return -1;
+}
+
+void*
+shm_map(int shmid, const void *hint, uint length, uint offset,
+        int prot, int flags)
+{
+  int i, j, k, npages, perm, found = 0;
+  uint va, mapbytes, firstpage;
+  struct proc *p = myproc();
+  pte_t *pte;
+
+  if(length == 0 || offset % PGSIZE ||
+     (flags != MAP_SHARED && flags != (MAP_SHARED | MAP_FIXED)) ||
+     !(prot & (PROT_READ | PROT_WRITE)) ||
+     (prot & ~(PROT_READ | PROT_WRITE | PROT_EXEC)))
+    return (void*)-1;
+
+  acquire(&shm.lock);
+  for(i = 0; i < NSHM; i++)
+    if(shm.seg[i].used && !shm.seg[i].marked_for_removal &&
+       shm.seg[i].shmid == shmid)
+      break;
+  if(i == NSHM || offset >= (uint)shm.seg[i].size ||
+     length > (uint)shm.seg[i].size - offset){
+    release(&shm.lock);
+    return (void*)-1;
+  }
+
+  firstpage = offset / PGSIZE;
+  mapbytes = PGROUNDUP(length);
+  npages = mapbytes / PGSIZE;
+  if(firstpage + npages > (uint)shm.seg[i].npages){
+    release(&shm.lock);
+    return (void*)-1;
+  }
+
+  for(k = 0; k < MAX_SHM_ATTACH && p->shmattach[k].used; k++)
+    ;
+  if(k == MAX_SHM_ATTACH){
+    release(&shm.lock);
+    return (void*)-1;
+  }
+
+  va = (uint)hint;
+  if(flags & MAP_FIXED){
+    if(va % PGSIZE){
+      release(&shm.lock);
+      return (void*)-1;
+    }
+  } else if(va != 0){
+    va = PGROUNDDOWN(va);
+  }
+
+  if(va >= SHMBASE && va + mapbytes >= va && va + mapbytes <= SHMLIMIT){
+    found = 1;
+    for(j = 0; j < npages; j++){
+      pte = walkpgdir(p->pgdir, (void*)(va + j * PGSIZE), 0);
+      if(pte && (*pte & PTE_P)){
+        found = 0;
+        break;
+      }
+    }
+  }
+  if(!found && (flags & MAP_FIXED)){
+    release(&shm.lock);
+    return (void*)-1;
+  }
+  if(!found){
+    for(va = SHMBASE; va + mapbytes >= va && va + mapbytes <= SHMLIMIT;
+        va += PGSIZE){
+      for(j = 0; j < npages; j++){
+        pte = walkpgdir(p->pgdir, (void*)(va + j * PGSIZE), 0);
+        if(pte && (*pte & PTE_P))
+          break;
+      }
+      if(j == npages){
+        found = 1;
+        break;
+      }
+    }
+  }
+  if(!found){
+    release(&shm.lock);
+    return (void*)-1;
+  }
+  for(j = 0; j < npages; j++){
+    if(walkpgdir(p->pgdir, (void*)(va + j * PGSIZE), 1) == 0){
+      release(&shm.lock);
+      return (void*)-1;
+    }
+  }
+
+  perm = PTE_U;
+  if(prot & PROT_WRITE)
+    perm |= PTE_W;
+  for(j = 0; j < npages; j++){
+    if(mappages(p->pgdir, (void*)(va + j * PGSIZE), PGSIZE,
+                V2P(shm.seg[i].pages[firstpage + j]), perm) < 0){
+      while(j > 0){
+        pte = walkpgdir(p->pgdir, (void*)(va + --j * PGSIZE), 0);
+        if(pte)
+          *pte = 0;
+      }
+      lcr3(V2P(p->pgdir));
+      release(&shm.lock);
+      return (void*)-1;
+    }
+  }
+
+  p->shmattach[k].used = 1;
+  p->shmattach[k].shmid = shmid;
+  p->shmattach[k].va = va;
+  p->shmattach[k].npages = npages;
+  p->shmattach[k].firstpage = firstpage;
+  p->shmattach[k].shmflg = (prot & PROT_WRITE) ? 0 : SHM_RDONLY;
+  shm.seg[i].nattach++;
+  lcr3(V2P(p->pgdir));
+  release(&shm.lock);
+  return (void*)va;
 }

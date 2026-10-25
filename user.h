@@ -27,6 +27,7 @@ int shmget(int, int, int);
 void* shmat(int, const void*, int);
 int shmdt(const void *);
 int shmctl(int, int, void *);
+void* mmap(void*, int, int, int, int, int);
 // int shmdt(const void *);
 // int shmctl(int, int, void *);
 

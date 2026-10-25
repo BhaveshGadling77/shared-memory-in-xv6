@@ -152,6 +152,7 @@ char*           strncpy(char*, const char*, int);
 void            shminit(void);
 int             shmget(int, int, int);
 void*           shmat(int, const void*, int);
+void*           shm_map(int, const void*, uint, uint, int, int);
 void            shmexit(struct proc*);
 int             shmfork(struct proc*, struct proc*);
 int             is_shared_page(uint);
