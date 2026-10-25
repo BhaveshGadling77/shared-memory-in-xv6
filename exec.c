@@ -97,7 +97,7 @@ exec(char *path, char **argv)
 
   // Commit to the user image.
   shmexit(curproc);
-  
+
   oldpgdir = curproc->pgdir;
   curproc->pgdir = pgdir;
   curproc->sz = sz;

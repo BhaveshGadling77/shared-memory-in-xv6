@@ -3,7 +3,7 @@
 #include <stdlib.h>
 #include <unistd.h>
 #include <fcntl.h>
-/* checking if open() syscall works 
+/* checking if open() syscall works
 * open takes three arguments: pathname, flags, mode
 * vary pathname: correct path, non-existent path
         pathname of a file with r permission, without r permissions
@@ -53,9 +53,9 @@ void test(struct testcase t) {
     }
 }
 int main(int argc, char *argv[]) {
- 
+
     int i;
     for(i = 0; i < sizeof(testcases)/sizeof(struct testcase) ; i++)
         test(testcases[i]);
- 
+
 }

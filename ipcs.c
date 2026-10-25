@@ -10,7 +10,7 @@ void usage(void)
 
 int option(char *arg)
 {
-  if(strcmp(arg, "--help") == 0) 
+  if(strcmp(arg, "--help") == 0)
     return 'h';
   if(strcmp(arg, "--version") == 0)
     return 'V';
@@ -24,7 +24,7 @@ int option(char *arg)
     return 's';
   if(strcmp(arg, "--creator") == 0)
     return 'c';
-  if(strcmp(arg, "--limits") == 0) 
+  if(strcmp(arg, "--limits") == 0)
     return 'l';
   if(strcmp(arg, "--pid") == 0)
     return 'p';
@@ -36,9 +36,9 @@ int option(char *arg)
     return 'b';
   if(strcmp(arg, "--human") == 0)
     return 'H';
-  if(strcmp(arg, "--id") == 0) 
+  if(strcmp(arg, "--id") == 0)
     return 'i';
-  
+
   if(arg[0] == '-' && arg[1] != '-' && arg[2] == 0)
     return arg[1];
   return 0;

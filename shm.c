@@ -152,13 +152,13 @@ void* shmat(int shmid, const void *shmaddr, int shmflg)
     release(&shm.lock);
     return (void*)-1;
   }
-  
+
   // Validate flags
   if(shmflg & ~(SHM_RDONLY | SHM_RND | SHM_EXEC | SHM_REMAP)) {
     release(&shm.lock);
     return (void*)-1;
   }
-  
+
   // SHM_REMAP requires non-null shmaddr
   if((shmflg & SHM_REMAP) && shmaddr == 0) {
     release(&shm.lock);
@@ -188,7 +188,7 @@ void* shmat(int shmid, const void *shmaddr, int shmflg)
       }
     }
 
-    // we succesfully found all the required space for shared memory mapping... 
+    // we succesfully found all the required space for shared memory mapping...
 
     if(!found) {
       release(&shm.lock);
@@ -215,7 +215,7 @@ void* shmat(int shmid, const void *shmaddr, int shmflg)
   }
 
   // Reserve an attachment record before SHM_REMAP removes any old one.
-  // get the shm adress slot like where can we stored the mapped shared segment within the code like here hmm... 
+  // get the shm adress slot like where can we stored the mapped shared segment within the code like here hmm...
   for(k = 0; k < MAX_SHM_ATTACH; k++) {
     if(!p->shmattach[k].used)
       break;
@@ -227,8 +227,8 @@ void* shmat(int shmid, const void *shmaddr, int shmflg)
   }
 
   // Allocate any needed page tables before changing existing mappings.
-  // we make sure here the page table holds the entry for the given 
-  // we build the page table for the given adress ok means at that given slot in page directory we just create an page table with empty values 
+  // we make sure here the page table holds the entry for the given
+  // we build the page table for the given adress ok means at that given slot in page directory we just create an page table with empty values
   for(j = 0; j < shm.seg[i].npages; j++) {
     if(walkpgdir(p->pgdir, (void*)(va + j * PGSIZE), 1) == 0) {
       release(&shm.lock);
@@ -268,7 +268,7 @@ void* shmat(int shmid, const void *shmaddr, int shmflg)
         for(k = 0; k < overlap_count; k++) {
           int a = overlap[k];
 
-          //get the virtual adress of the overlapping segment like here 
+          //get the virtual adress of the overlapping segment like here
           a_start = p->shmattach[a].va;
           a_end = a_start + p->shmattach[a].npages * PGSIZE;
 
@@ -322,7 +322,7 @@ void* shmat(int shmid, const void *shmaddr, int shmflg)
       p->shmattach[a].shmflg = 0;
     }
 
-    //stores the adress of the page table in the lcr3 register 
+    //stores the adress of the page table in the lcr3 register
     if(p == myproc())
       lcr3(V2P(p->pgdir));
 
@@ -373,7 +373,7 @@ void* shmat(int shmid, const void *shmaddr, int shmflg)
 
       release(&shm.lock);
       return (void*)-1;
-    } 
+    }
   }
 
   p->shmattach[k].used = 1;
@@ -418,7 +418,7 @@ is_shared_page(uint pa)
 }
 
 
-// same as earlier code dead code just use to return the segment holding that physical adress initially thought for the nattach but we now moved that part to shmdt 
+// same as earlier code dead code just use to return the segment holding that physical adress initially thought for the nattach but we now moved that part to shmdt
 int
 get_shm_segment(uint pa)
 {
@@ -443,7 +443,7 @@ get_shm_segment(uint pa)
   return -1;
 }
 
-//whenever an shared memory segment is removed i particularly used it for clearing the allocated pages for that shared memory initially and mainly clearing out the like shared memory segment for other enteries to use it like 
+//whenever an shared memory segment is removed i particularly used it for clearing the allocated pages for that shared memory initially and mainly clearing out the like shared memory segment for other enteries to use it like
 static void
 free_shm_segment(struct shmseg *s)
 {
@@ -466,7 +466,7 @@ free_shm_segment(struct shmseg *s)
   s->marked_for_removal = 0;
 }
 
-// created this as seperate function because shm exit also uses it mainly during the shmexit phase like and also in the shmdt 
+// created this as seperate function because shm exit also uses it mainly during the shmexit phase like and also in the shmdt
 static int
 shmdt_internal(struct proc *p, uint va)
 {
@@ -474,7 +474,7 @@ shmdt_internal(struct proc *p, uint va)
   struct shmseg *s;
   pte_t *pte;
 
-  // Find the attachment by its exact starting address. // find the actual required shared memory attachment like 
+  // Find the attachment by its exact starting address. // find the actual required shared memory attachment like
   for(k = 0; k < MAX_SHM_ATTACH; k++) {
     if(p->shmattach[k].used && p->shmattach[k].va == va)
       break;
@@ -484,7 +484,7 @@ shmdt_internal(struct proc *p, uint va)
     return -1;
 
   // Find the segment associated with this attachment.
-  // find out which segment in the shared memory segment is attached to the current process like here hmm haa 
+  // find out which segment in the shared memory segment is attached to the current process like here hmm haa
   for(i = 0; i < NSHM; i++) {
     if(shm.seg[i].used &&
        shm.seg[i].shmid == p->shmattach[k].shmid)
@@ -497,7 +497,7 @@ shmdt_internal(struct proc *p, uint va)
   s = &shm.seg[i];
 
   // Remove this process's mappings, not the shared physical pages.
-  // get the entry for that va to be removed from the hmm the page table remove the mapping 
+  // get the entry for that va to be removed from the hmm the page table remove the mapping
   for(j = 0; j < p->shmattach[k].npages; j++) {
     pte = walkpgdir(p->pgdir,
                     (void*)(va + j * PGSIZE), 0);
@@ -765,7 +765,7 @@ shmfork(struct proc *parent, struct proc *child)
       goto bad;
     }
     // Find the shared-memory segment from the shmget like ok
-    // dekho konsa shared memory segment attached hain ok got it haa 
+    // dekho konsa shared memory segment attached hain ok got it haa
     for(j = 0; j < NSHM; j++) {
       if(shm.seg[j].used &&
          shm.seg[j].shmid == parent->shmattach[k].shmid)
@@ -778,9 +778,9 @@ shmfork(struct proc *parent, struct proc *child)
     }
     s = &shm.seg[j];
     va = parent->shmattach[k].va;
-    //k mein parent ka attachment 
-    //i mein child ka attachments 
-    // j mein shm ka actual shared memory segment 
+    //k mein parent ka attachment
+    //i mein child ka attachments
+    // j mein shm ka actual shared memory segment
 
     // Verify that the child's corresponding pages exist
     // and are not already mapped.

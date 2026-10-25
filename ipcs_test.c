@@ -87,7 +87,7 @@ int main(void)
   run("-m", "--human", 0);
   run("-l", "-b", 0);
   run("-l", "--human", 0);
-  run("-m", "-i", idtext); 
+  run("-m", "-i", idtext);
   run("-a", "--id", idtext);
 
   shmdt(addr2);
