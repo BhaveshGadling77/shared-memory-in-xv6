@@ -183,13 +183,16 @@ UPROGS=\
 	_stressfs\
 	_usertests\
 	_wc\
+	_ipcs\
+	_ipcs_test\
 	_zombie\
 	_shmget_test\
 	_shmat_test\
 	_shmdt_test\
 	_shmctl_test\
 	_shmfork_test\
-	_shmexec_test\
+	_shmexec_test
+
 
 	
 

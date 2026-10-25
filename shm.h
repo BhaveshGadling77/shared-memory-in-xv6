@@ -32,6 +32,7 @@ struct shmctl_ds {
   int npages;
   int nattach;
   int creator_pid;
+  char creator_name[16];
   int mode;
   int marked_for_removal;
 };
@@ -57,6 +58,7 @@ struct shmseg {
   int npages;
   int nattach;
   int creator_pid;
+  char creator_name[16];
   char *pages[SHM_MAX_PAGES];
   int mode;
   int marked_for_removal;
