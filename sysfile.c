@@ -115,7 +115,7 @@ sys_fstat(void)
   return filestat(f, st);
 }
 
-// map a POSIX shared memory object into the current process.
+//map the shared memory object.
 int
 sys_mmap(void)
 {
@@ -128,6 +128,10 @@ sys_mmap(void)
      f->type != FD_SHM || length <= 0 || offset < 0 ||
      (prot & ~(PROT_READ | PROT_WRITE | PROT_EXEC)) ||
      (flags != MAP_SHARED && flags != (MAP_SHARED | MAP_FIXED)))
+    return -1;
+  if((prot & PROT_READ) && !f->readable)
+    return -1;
+  if((prot & PROT_WRITE) && !f->writable)
     return -1;
   return (int)shm_map(f->shmid, (const void*)addr,
                       (uint)length, (uint)offset, prot, flags);

@@ -880,9 +880,9 @@ shm_map(int shmid, const void *hint, uint length, uint offset,
   struct proc *p = myproc();
   pte_t *pte;
 
-  if(length == 0 || offset % PGSIZE ||
+  if(length == 0 || length > 0xffffffffU - (PGSIZE - 1) ||
+     offset % PGSIZE ||
      (flags != MAP_SHARED && flags != (MAP_SHARED | MAP_FIXED)) ||
-     !(prot & (PROT_READ | PROT_WRITE)) ||
      (prot & ~(PROT_READ | PROT_WRITE | PROT_EXEC)))
     return (void*)-1;
 
