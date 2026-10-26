@@ -32,6 +32,7 @@ filealloc(void)
   for(f = ftable.file; f < ftable.file + NFILE; f++){
     if(f->ref == 0){
       f->ref = 1;
+      f->type = FD_NONE;
       release(&ftable.lock);
       return f;
     }
@@ -72,7 +73,9 @@ fileclose(struct file *f)
 
   if(ff.type == FD_PIPE)
     pipeclose(ff.pipe, ff.writable);
-  else if(ff.type == FD_INODE){
+  else if(ff.type == FD_INODE || ff.type == FD_SHM){
+    if(ff.type == FD_SHM)
+      shm_file_close(ff.shmid);
     begin_op();
     iput(ff.ip);
     end_op();

@@ -31,6 +31,8 @@ void* mmap(void*, int, int, int, int, int);
 // int shmdt(const void *);
 // int shmctl(int, int, void *);
 
+int shm_open(const char *name, int oflag, int mode);
+int ftruncate(int, int);
 // ulib.c
 int stat(const char*, struct stat*);
 char* strcpy(char*, const char*);

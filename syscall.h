@@ -25,3 +25,5 @@
 #define SYS_shmdt  24
 #define SYS_shmctl 25
 #define SYS_mmap   26
+#define SYS_shm_open 27
+#define SYS_ftruncate 28

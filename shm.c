@@ -37,7 +37,8 @@ int shmget(int key, int size, int shmflg){
   // Check whether key already exists (Bug 6: skip if key == IPC_PRIVATE)
   if(key != IPC_PRIVATE) {
     for(i = 0; i < NSHM; i++){
-      if(shm.seg[i].used && !shm.seg[i].marked_for_removal && shm.seg[i].key == key){
+      if(shm.seg[i].used && !shm.seg[i].posix &&
+         !shm.seg[i].marked_for_removal && shm.seg[i].key == key){
         // IPC_CREAT | IPC_EXCL fails if key exists
         if((shmflg & IPC_CREAT) && (shmflg & IPC_EXCL)) {
           release(&shm.lock);
@@ -107,6 +108,10 @@ int shmget(int key, int size, int shmflg){
 
   // Fill metadata
   shm.seg[i].used = 1;
+  shm.seg[i].posix = 0;
+  shm.seg[i].dev = 0;
+  shm.seg[i].inum = 0;
+  shm.seg[i].nfile = 0;
   shm.seg[i].key = key;
   shm.seg[i].shmid = i + 1;
   shm.seg[i].size = size;
@@ -134,13 +139,14 @@ void* shmat(int shmid, const void *shmaddr, int shmflg)
   uint va = 0;
   uint end;
   int perm;
+  int changed = 0;
 
   struct proc *p = myproc();
   acquire(&shm.lock);
 
   // first find the shm segment using loop
   for (i = 0; i < NSHM; i++) {
-    if(shm.seg[i].used &&
+    if(shm.seg[i].used && !shm.seg[i].posix &&
       !shm.seg[i].marked_for_removal &&
       shm.seg[i].shmid == shmid)
       break;
@@ -296,8 +302,10 @@ void* shmat(int shmid, const void *shmaddr, int shmflg)
         pte_t *pte = walkpgdir(
             p->pgdir, (void*)(a_start + j * PGSIZE), 0);
 
-        if(pte)
+        if(pte && (*pte & PTE_P)) {
           *pte = 0;
+          changed = 1;
+        }
       }
 
       for(old_s = 0; old_s < NSHM; old_s++) {
@@ -322,10 +330,7 @@ void* shmat(int shmid, const void *shmaddr, int shmflg)
       p->shmattach[a].shmflg = 0;
     }
 
-    //stores the adress of the page table in the lcr3 register
-    if(p == myproc())
-      lcr3(V2P(p->pgdir));
-
+    // The final mapping reload below also flushes these removed entries.
   } else {
     // Without SHM_REMAP, target pages must be unused.
     for(j = 0; j < shm.seg[i].npages; j++) {
@@ -368,7 +373,7 @@ void* shmat(int shmid, const void *shmaddr, int shmflg)
           *pte = 0;
       }
 
-      if(p == myproc())
+      if(j > 0 || changed)
         lcr3(V2P(p->pgdir));
 
       release(&shm.lock);
@@ -385,8 +390,7 @@ void* shmat(int shmid, const void *shmaddr, int shmflg)
 
   shm.seg[i].nattach++;
 
-  if(p == myproc())
-    lcr3(V2P(p->pgdir));
+  lcr3(V2P(p->pgdir));
 
   release(&shm.lock);
 
@@ -455,6 +459,10 @@ free_shm_segment(struct shmseg *s)
     }
   }
   s->used = 0;
+  s->posix = 0;
+  s->dev = 0;
+  s->inum = 0;
+  s->nfile = 0;
   s->key = 0;
   s->shmid = 0;
   s->size = 0;
@@ -520,7 +528,8 @@ shmdt_internal(struct proc *p, uint va)
   // Physical pages are freed only after removal was requested
   // and the last attachment has disappeared.
   // actually its easy who ever is reading the code first understand all the structures and then its cake walk make diagrams or this cake will haunt you for life
-  if(s->marked_for_removal && s->nattach == 0)
+  if(s->nattach == 0 && s->nfile == 0 &&
+     (s->posix || s->marked_for_removal))
     free_shm_segment(s);
 
   return 0;
@@ -540,7 +549,7 @@ shmdt(const void *shmaddr)
   result = shmdt_internal(p, va);
   release(&shm.lock);
 
-  if(result == 0 && p->pgdir != 0)
+  if(result == 0)
     lcr3(V2P(p->pgdir));
 
   return result;
@@ -583,7 +592,7 @@ shmctl(int shmid, int cmd, void *buf)
     highest = -1;
 
     for(i = 0; i < NSHM; i++) {
-      if(!shm.seg[i].used)
+      if(!shm.seg[i].used || shm.seg[i].posix)
         continue;
 
       used_segments++;
@@ -610,7 +619,7 @@ shmctl(int shmid, int cmd, void *buf)
    */
   if(cmd == SHM_STAT || cmd == SHM_STAT_ANY) {
     if(shmid < 0 || shmid >= NSHM ||
-       !shm.seg[shmid].used) {
+       !shm.seg[shmid].used || shm.seg[shmid].posix) {
       release(&shm.lock);
       return -1;
     }
@@ -618,7 +627,7 @@ shmctl(int shmid, int cmd, void *buf)
     i = shmid;
   } else {
     for(i = 0; i < NSHM; i++) {
-      if(shm.seg[i].used &&
+      if(shm.seg[i].used && !shm.seg[i].posix &&
          shm.seg[i].shmid == shmid)
         break;
     }
@@ -711,7 +720,7 @@ shmctl(int shmid, int cmd, void *buf)
 void
 shmexit(struct proc *p)
 {
-  int k;
+  int k, changed = 0;
 
   acquire(&shm.lock);
 
@@ -728,14 +737,120 @@ shmexit(struct proc *p)
       p->shmattach[k].npages = 0;
       p->shmattach[k].firstpage = 0;
       p->shmattach[k].shmflg = 0;
-    }
+    } else
+      changed = 1;
   }
 
   release(&shm.lock);
 
-  // Flush the TLB if this is the currently running process.
-  if(p == myproc() && p->pgdir != 0)
+  // shmexit is called for the current process by exec and exit.
+  if(changed)
     lcr3(V2P(p->pgdir));
+}
+
+int
+shm_file_open(uint dev, uint inum)
+{
+  int i;
+
+  acquire(&shm.lock);
+  for(i = 0; i < NSHM; i++) {
+    if(shm.seg[i].used && shm.seg[i].posix &&
+       shm.seg[i].dev == dev && shm.seg[i].inum == inum) {
+      shm.seg[i].nfile++;
+      release(&shm.lock);
+      return shm.seg[i].shmid;
+    }
+  }
+  for(i = 0; i < NSHM; i++)
+    if(!shm.seg[i].used)
+      break;
+  if(i == NSHM) {
+    release(&shm.lock);
+    return -1;
+  }
+
+  memset(&shm.seg[i], 0, sizeof(shm.seg[i]));
+  shm.seg[i].used = 1;
+  shm.seg[i].posix = 1;
+  shm.seg[i].dev = dev;
+  shm.seg[i].inum = inum;
+  shm.seg[i].shmid = i + 1;
+  shm.seg[i].nfile = 1;
+  release(&shm.lock);
+  return i + 1;
+}
+
+void
+shm_file_close(int shmid)
+{
+  int i;
+
+  acquire(&shm.lock);
+  for(i = 0; i < NSHM; i++)
+    if(shm.seg[i].used && shm.seg[i].posix &&
+       shm.seg[i].shmid == shmid)
+      break;
+  if(i < NSHM) {
+    if(shm.seg[i].nfile < 1)
+      panic("shm_file_close");
+    shm.seg[i].nfile--;
+    if(shm.seg[i].nfile == 0 && shm.seg[i].nattach == 0)
+      free_shm_segment(&shm.seg[i]);
+  }
+  release(&shm.lock);
+}
+
+int
+shm_ftruncate(int shmid, int size)
+{
+  int i, j, need;
+  char *newpages[SHM_MAX_PAGES];
+
+  if(size < 0 || size > SHM_MAX_PAGES * PGSIZE)
+    return -1;
+  need = (size + PGSIZE - 1) / PGSIZE;
+  acquire(&shm.lock);
+  for(i = 0; i < NSHM; i++)
+    if(shm.seg[i].used && shm.seg[i].posix &&
+       shm.seg[i].shmid == shmid)
+      break;
+  if(i == NSHM) {
+    release(&shm.lock);
+    return -1;
+  }
+
+  for(j = shm.seg[i].npages; j < need; j++) {
+    newpages[j - shm.seg[i].npages] = kalloc();
+    if(newpages[j - shm.seg[i].npages] == 0) {
+      while(j > shm.seg[i].npages)
+        kfree(newpages[--j - shm.seg[i].npages]);
+      release(&shm.lock);
+      return -1;
+    }
+    memset(newpages[j - shm.seg[i].npages], 0, PGSIZE);
+  }
+  for(j = shm.seg[i].npages; j < need; j++)
+    shm.seg[i].pages[j] = newpages[j - shm.seg[i].npages];
+  if(need > shm.seg[i].npages)
+    shm.seg[i].npages = need;
+
+  if(size < shm.seg[i].size) {
+    uint clear_from = size;
+    uint clear_to = shm.seg[i].npages * PGSIZE;
+    while(clear_from < clear_to) {
+      uint page = clear_from / PGSIZE;
+      uint off = clear_from % PGSIZE;
+      uint n = PGSIZE - off;
+      if(n > clear_to - clear_from)
+        n = clear_to - clear_from;
+      memset(shm.seg[i].pages[page] + off, 0, n);
+      clear_from += n;
+    }
+  }
+  shm.seg[i].size = size;
+  release(&shm.lock);
+  return 0;
 }
 
 int
@@ -875,7 +990,7 @@ void*
 shm_map(int shmid, const void *hint, uint length, uint offset,
         int prot, int flags)
 {
-  int i, j, k, npages, perm, found = 0;
+  int i, j, k, npages, perm, found = 0, mapped;
   uint va, mapbytes, firstpage;
   struct proc *p = myproc();
   pte_t *pte;
@@ -888,7 +1003,7 @@ shm_map(int shmid, const void *hint, uint length, uint offset,
 
   acquire(&shm.lock);
   for(i = 0; i < NSHM; i++)
-    if(shm.seg[i].used && !shm.seg[i].marked_for_removal &&
+    if(shm.seg[i].used && shm.seg[i].posix &&
        shm.seg[i].shmid == shmid)
       break;
   if(i == NSHM || offset >= (uint)shm.seg[i].size ||
@@ -965,14 +1080,15 @@ shm_map(int shmid, const void *hint, uint length, uint offset,
   if(prot & PROT_WRITE)
     perm |= PTE_W;
   for(j = 0; j < npages; j++){
-    if(mappages(p->pgdir, (void*)(va + j * PGSIZE), PGSIZE,
-                V2P(shm.seg[i].pages[firstpage + j]), perm) < 0){
+    if(mappages(p->pgdir, (void*)(va + j * PGSIZE), PGSIZE, V2P(shm.seg[i].pages[firstpage + j]), perm) < 0){
+      mapped = j;
       while(j > 0){
         pte = walkpgdir(p->pgdir, (void*)(va + --j * PGSIZE), 0);
         if(pte)
           *pte = 0;
       }
-      lcr3(V2P(p->pgdir));
+      if(mapped > 0)
+        lcr3(V2P(p->pgdir));
       release(&shm.lock);
       return (void*)-1;
     }

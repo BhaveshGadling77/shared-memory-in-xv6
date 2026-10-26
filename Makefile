@@ -189,7 +189,6 @@ UPROGS=\
 	_shmfinal_test\
 	_mmap_test\
 
-
 fs.img: mkfs README $(UPROGS)
 	./mkfs fs.img README $(UPROGS)
 

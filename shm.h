@@ -59,6 +59,10 @@ struct shmctl_info {
 
 struct shmseg {
   int used;
+  int posix;
+  uint dev;
+  uint inum;
+  int nfile;
   int key;
   int shmid;
   int size;
@@ -90,6 +94,8 @@ int shmdt(const void *);
 int shmctl(int shmid, int cmd, void *buf);
 void* shm_map(int shmid, const void *addr, uint length, uint offset,
               int prot, int flags);
-// int shmctl(int shmid, int cmd, struct shmid_ds *buf);
+int shm_file_open(uint dev, uint inum);
+void shm_file_close(int shmid);
+int shm_ftruncate(int shmid, int size);
 
 #endif
