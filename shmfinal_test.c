@@ -330,6 +330,88 @@ void test_rm() {
 	verify("shmctl.stat.removed", statRejected);
 }
 
+//this is the functiuon to test ipcs application to be specific
+void run_ipcs(char *a, char *b, char *c) {
+	int pid, argc;
+	char *argv[5];
+	argc = 0; argv[argc++] = "ipcs";
+	if (a)
+	argv[argc++] = a;
+
+	if (b)
+	argv[argc++] = b;
+
+	if (c)
+	argv[argc++] = c;
+
+	argv[argc] = 0;
+	pid = fork();
+	if (pid == 0) {
+		exec("ipcs", argv);
+		exit();
+	}
+	if (pid > 0)
+		wait();
+}
+
+void test_ipcs() {
+	char key[12];
+	int n, i;
+	char *p, *q;
+	int ipc_id = shmget(base + 20, PG, IPC_CREAT | 0600);
+	verify("ipcs.setup.segment", ipc_id >= 0);
+
+	if (ipc_id < 0)
+		return;
+	p = (char*)shmat(ipc_id, 0, 0); q = (char*)shmat(ipc_id, 0, 0);
+	verify("ipcs.setup.attachments", !badaddr(p) && !badaddr(q));
+
+	n = ipc_id; i = 0;
+	if (n == 0) key[i++] = '0';
+	while (n > 0) {
+		key[i++] = '0' + n % 10;
+		n /= 10;
+	}
+	key[i] = 0;
+	for (n = 0; n < i/2; n++) {
+		char t = key[n];
+		key[n] = key[i-n-1];
+		key[i-n-1] = t;
+	}
+	// note: this is not all testcases which is implmented by linux ipcs this testcases are taken by ipcs.c.
+	run_ipcs("-h", 0, 0);
+	run_ipcs("--help", 0, 0);
+	run_ipcs("-V", 0, 0);
+	run_ipcs("--version", 0, 0);
+	run_ipcs("-a", 0, 0);
+	run_ipcs("--all", 0, 0);
+	run_ipcs("-m", 0, 0);
+	run_ipcs("--shmems", 0, 0);
+	run_ipcs("-c", 0, 0);
+	run_ipcs("--creator", 0, 0);
+	run_ipcs("-l", 0, 0);
+	run_ipcs("--limits", 0, 0);
+	run_ipcs("-p", 0, 0);
+	run_ipcs("--pid", 0, 0);
+	run_ipcs("-t", 0, 0);
+	run_ipcs("--time", 0, 0);
+	run_ipcs("-u", 0, 0);
+	run_ipcs("--summary", 0, 0);
+	run_ipcs("-l", "-b", 0);
+	run_ipcs("-l", "--bytes", 0);
+	run_ipcs("-l", "--human", 0);
+	run_ipcs("-m", "-i", key);
+	run_ipcs("-a", "--id", key);
+
+	if (!badaddr(q))
+		shmdt(q);
+
+	if (!badaddr(p))
+		shmdt(p);
+
+	shmctl(ipc_id, IPC_RMID, 0);
+}
+
 int main(int argc, char *argv[]) {
 
 	if (argc > 1 && strcmp(argv[1], "child") == 0) {
@@ -358,6 +440,7 @@ int main(int argc, char *argv[]) {
 		test_ctl();
 		test_fork();
 		test_exec();
+		test_ipcs();
 		test_rm();
 	}
 

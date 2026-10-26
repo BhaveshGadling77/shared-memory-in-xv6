@@ -34,8 +34,7 @@ int shmget(int key, int size, int shmflg){
 
   acquire(&shm.lock);
 
-  // Check whether key already exists (Bug 6: skip if key == IPC_PRIVATE)
-  if(key != IPC_PRIVATE) {
+  // Check whether key already exists
     for(i = 0; i < NSHM; i++){
       if(shm.seg[i].used && !shm.seg[i].posix &&
          !shm.seg[i].marked_for_removal && shm.seg[i].key == key){
