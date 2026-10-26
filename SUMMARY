@@ -1,0 +1,10 @@
+Implemented
+-----------
+- Combined shared memory syscall tests in shmfinal_test.c.
+- Added named checks for segment creation, attachment, control, detach, fork, and exec behavior.
+- Added shmfinal_test to the xv6 user program image.
+
+Not Implemented
+---------------
+- Automated QEMU execution of the test program.
+- Tests for the ipcs command and mmap syscall in shmfinal_test.c.
