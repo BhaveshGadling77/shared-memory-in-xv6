@@ -55,9 +55,9 @@ int main(void) {
     verify("shm_open.unsupported.flags",
            shm_open(name, O_RDWR|O_WRONLY, 0600) < 0);
     fd2 = shm_open(name, O_RDWR, 0);
-    
+
     verify("shm_open.open.existing", fd2 >= 0);
-    
+
     truncfd = shm_open(name, O_RDWR|O_TRUNC, 0);
     verify("shm_open.truncate.existing", truncfd >= 0);
     verify("shm_open.truncate.resets.size",
@@ -69,7 +69,7 @@ int main(void) {
 
     verify("mmap.rejects.regular.file",
            regularfd < 0 || mmap(0, PG, PROT_READ, MAP_SHARED, regularfd, 0) == (void*)-1);
-    
+
     if (regularfd >= 0)
         close(regularfd);
 
@@ -93,7 +93,7 @@ int main(void) {
 	q = fd2 < 0 ? (void*)-1 :
 		mmap(0, 2 * PG, PROT_READ|PROT_WRITE, MAP_SHARED, fd2, 0);
 	verify("mmap.shared.object", p != (void*)-1 && q != (void*)-1);
-	
+
 	if (p != (void*)-1 && q != (void*)-1) {
 		((char*)p)[0] = 'P';
 		((char*)q)[PG] = 'Q';

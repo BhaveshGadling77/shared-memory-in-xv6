@@ -54,7 +54,6 @@ int shmget(int key, int size, int shmflg){
         return shmid;
       }
     }
-  }
 
   // segment doesn't exist
   // cannot create a new segment with size 0
