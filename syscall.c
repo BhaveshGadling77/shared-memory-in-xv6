@@ -148,7 +148,11 @@ extern int sys_shmget(void);
 extern int sys_shmat(void);
 extern int sys_shmdt(void);
 extern int sys_shmctl(void);
+<<<<<<< Updated upstream
 extern int sys_mmap(void);
+=======
+extern int sys_shm_open(void);
+>>>>>>> Stashed changes
 
 static int (*syscalls[])(void) = {
 [SYS_fork]    sys_fork,
@@ -176,7 +180,11 @@ static int (*syscalls[])(void) = {
 [SYS_shmat]   sys_shmat,
 [SYS_shmdt]  sys_shmdt,
 [SYS_shmctl] sys_shmctl,
+<<<<<<< Updated upstream
 [SYS_mmap]   sys_mmap,
+=======
+[SYS_shm_open] sys_shm_open,
+>>>>>>> Stashed changes
 };
 
 void

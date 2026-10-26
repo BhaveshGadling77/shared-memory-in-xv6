@@ -88,8 +88,12 @@ int is_shared_page(uint);
 int get_shm_segment(uint);
 int shmdt(const void *);
 int shmctl(int shmid, int cmd, void *buf);
+<<<<<<< Updated upstream
 void* shm_map(int shmid, const void *addr, uint length, uint offset,
               int prot, int flags);
 // int shmctl(int shmid, int cmd, struct shmid_ds *buf);
+=======
+int shm_open(const char *name, int oflag, int mode);
+>>>>>>> Stashed changes
 
 #endif

@@ -33,4 +33,8 @@ SYSCALL(shmget)
 SYSCALL(shmat)
 SYSCALL(shmdt)
 SYSCALL(shmctl)
+<<<<<<< Updated upstream
 SYSCALL(mmap)
+=======
+SYSCALL(shm_open)
+>>>>>>> Stashed changes
