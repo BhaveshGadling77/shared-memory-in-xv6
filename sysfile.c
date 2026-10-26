@@ -137,6 +137,18 @@ sys_mmap(void)
                       (uint)length, (uint)offset, prot, flags);
 }
 
+int
+sys_ftruncate(void)
+{
+  int size;
+  struct file *f;
+
+  if(argfd(0, 0, &f) < 0 || argint(1, &size) < 0 ||
+     f->type != FD_SHM || !f->writable || size < 0)
+    return -1;
+  return shm_ftruncate(f->shmid, size);
+}
+
 // Create the path new as a link to the same inode as old.
 int
 sys_link(void)
@@ -361,7 +373,7 @@ sys_shm_open(void)
   char *name;
   char path[DIRSIZ + 2];
   int flags, mode;
-  int fd, i, len;
+  int fd, shmid, i, len;
   struct file *f;
   struct inode *ip;
 
@@ -434,10 +446,6 @@ sys_shm_open(void)
     return -1;
   }
 
-  // Truncate an existing object when requested.
-  if((flags & O_TRUNC) && (flags & O_RDWR))
-    itrunc(ip);
-
   // Allocate a file structure.
   f = filealloc();
   if(f == 0) {
@@ -446,18 +454,37 @@ sys_shm_open(void)
     return -1;
   }
 
-  // Initialize the file before publishing its descriptor.
-  f->type = FD_INODE;
+  // Allocate a descriptor in the current process.
+  f->type = FD_NONE;
+  fd = fdalloc(f);
+  if(fd < 0) {
+    fileclose(f);
+    iunlockput(ip);
+    end_op();
+    return -1;
+  }
+
+  // The descriptor refers to the shared-memory table's inode-backed object.
+  shmid = shm_file_open(ip->dev, ip->inum);
+  if(shmid < 0) {
+    myproc()->ofile[fd] = 0;
+    fileclose(f);
+    iunlockput(ip);
+    end_op();
+    return -1;
+  }
+  f->type = FD_SHM;
+  f->shmid = shmid;
   f->ip = ip;
   f->off = 0;
   f->readable = 1;
   f->writable = ((flags & O_RDWR) != 0);
 
-  // Allocate a descriptor in the current process.
-  fd = fdalloc(f);
-  if(fd < 0) {
+  if((flags & O_TRUNC) && (flags & O_RDWR) &&
+     shm_ftruncate(f->shmid, 0) < 0) {
+    myproc()->ofile[fd] = 0;
+    iunlock(ip);
     fileclose(f);
-    iunlockput(ip);
     end_op();
     return -1;
   }

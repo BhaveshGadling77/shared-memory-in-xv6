@@ -27,14 +27,12 @@ int shmget(int, int, int);
 void* shmat(int, const void*, int);
 int shmdt(const void *);
 int shmctl(int, int, void *);
-<<<<<<< Updated upstream
 void* mmap(void*, int, int, int, int, int);
 // int shmdt(const void *);
 // int shmctl(int, int, void *);
 
-=======
 int shm_open(const char *name, int oflag, int mode);
->>>>>>> Stashed changes
+int ftruncate(int, int);
 // ulib.c
 int stat(const char*, struct stat*);
 char* strcpy(char*, const char*);

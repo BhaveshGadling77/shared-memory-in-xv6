@@ -194,10 +194,6 @@ UPROGS=\
 	_shmexec_test\
 	_mmap_test\
 
-<<<<<<< Updated upstream
-
-=======
->>>>>>> Stashed changes
 fs.img: mkfs README $(UPROGS)
 	./mkfs fs.img README $(UPROGS)
 
