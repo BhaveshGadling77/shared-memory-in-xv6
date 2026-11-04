@@ -9,3 +9,4 @@ struct spinlock {
                      // that locked the lock.
 };
 
+// here it means in the locked that the lock is acquired ok

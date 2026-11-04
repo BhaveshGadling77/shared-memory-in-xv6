@@ -15,6 +15,7 @@
 #include "sleeplock.h"
 #include "file.h"
 #include "fcntl.h"
+#include "shm.h"
 
 // Fetch the nth word-sized system call argument as a file descriptor
 // and return both the descriptor and the corresponding struct file.
@@ -112,6 +113,40 @@ sys_fstat(void)
   if(argfd(0, 0, &f) < 0 || argptr(1, (void*)&st, sizeof(*st)) < 0)
     return -1;
   return filestat(f, st);
+}
+
+//map the shared memory object.
+int
+sys_mmap(void)
+{
+  int addr, length, prot, flags, offset;
+  struct file *f;
+
+  if(argint(0, &addr) < 0 || argint(1, &length) < 0 ||
+     argint(2, &prot) < 0 || argint(3, &flags) < 0 ||
+     argfd(4, 0, &f) < 0 || argint(5, &offset) < 0 ||
+     f->type != FD_SHM || length <= 0 || offset < 0 ||
+     (prot & ~(PROT_READ | PROT_WRITE | PROT_EXEC)) ||
+     (flags != MAP_SHARED && flags != (MAP_SHARED | MAP_FIXED)))
+    return -1;
+  if((prot & PROT_READ) && !f->readable)
+    return -1;
+  if((prot & PROT_WRITE) && !f->writable)
+    return -1;
+  return (int)shm_map(f->shmid, (const void*)addr,
+                      (uint)length, (uint)offset, prot, flags);
+}
+
+int
+sys_ftruncate(void)
+{
+  int size;
+  struct file *f;
+
+  if(argfd(0, 0, &f) < 0 || argint(1, &size) < 0 ||
+     f->type != FD_SHM || !f->writable || size < 0)
+    return -1;
+  return shm_ftruncate(f->shmid, size);
 }
 
 // Create the path new as a link to the same inode as old.
@@ -329,6 +364,134 @@ sys_open(void)
   f->off = 0;
   f->readable = !(omode & O_WRONLY);
   f->writable = (omode & O_WRONLY) || (omode & O_RDWR);
+  return fd;
+}
+
+int
+sys_shm_open(void)
+{
+  char *name;
+  char path[DIRSIZ + 2];
+  int flags, mode;
+  int fd, shmid, i, len;
+  struct file *f;
+  struct inode *ip;
+
+  // Read system-call arguments.
+  if(argstr(0, &name) < 0 ||
+     argint(1, &flags) < 0 ||
+     argint(2, &mode) < 0)
+    return -1;
+
+  // Validate supported flags.
+  if(flags & ~(O_RDWR | O_CREAT | O_EXCL | O_TRUNC))
+    return -1;
+
+  // Validate the POSIX shared-memory name.
+  // Names must start with '/' and contain one component.
+  len = 0;
+  while(name[len]) {
+    if(len >= DIRSIZ + 1)
+      return -1;
+    len++;
+  }
+
+  if(len < 2 || name[0] != '/')
+    return -1;
+
+  for(i = 1; i < len; i++) {
+    if(name[i] == '/')
+      return -1;
+  }
+
+  // Use the name directly; no ".shm_" prefix.
+  for(i = 0; i <= len; i++)
+    path[i] = name[i];
+
+  begin_op();
+
+  // Look for an existing object.
+  ip = namei(path);
+
+  if(ip != 0) {
+    // O_CREAT | O_EXCL must fail if it already exists.
+    if((flags & O_CREAT) && (flags & O_EXCL)) {
+      iput(ip);
+      end_op();
+      return -1;
+    }
+  } else {
+    // Object doesn't exist; creation must be requested.
+    if(!(flags & O_CREAT)) {
+      end_op();
+      return -1;
+    }
+
+    // xv6's create() returns the inode locked.
+    ip = create(path, T_FILE, 0, 0);
+    if(ip == 0) {
+      end_op();
+      return -1;
+    }
+
+    iunlock(ip);
+  }
+
+  ilock(ip);
+
+  // Shared-memory objects must be regular files.
+  if(ip->type != T_FILE) {
+    iunlockput(ip);
+    end_op();
+    return -1;
+  }
+
+  // Allocate a file structure.
+  f = filealloc();
+  if(f == 0) {
+    iunlockput(ip);
+    end_op();
+    return -1;
+  }
+
+  // Allocate a descriptor in the current process.
+  f->type = FD_NONE;
+  fd = fdalloc(f);
+  if(fd < 0) {
+    fileclose(f);
+    iunlockput(ip);
+    end_op();
+    return -1;
+  }
+
+  // The descriptor refers to the shared-memory table's inode-backed object.
+  shmid = shm_file_open(ip->dev, ip->inum);
+  if(shmid < 0) {
+    myproc()->ofile[fd] = 0;
+    fileclose(f);
+    iunlockput(ip);
+    end_op();
+    return -1;
+  }
+  f->type = FD_SHM;
+  f->shmid = shmid;
+  f->ip = ip;
+  f->off = 0;
+  f->readable = 1;
+  f->writable = ((flags & O_RDWR) != 0);
+
+  if((flags & O_TRUNC) && (flags & O_RDWR) &&
+     shm_ftruncate(f->shmid, 0) < 0) {
+    myproc()->ofile[fd] = 0;
+    iunlock(ip);
+    fileclose(f);
+    end_op();
+    return -1;
+  }
+
+  iunlock(ip);
+  end_op();
+
   return fd;
 }
 

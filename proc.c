@@ -112,6 +112,7 @@ found:
   memset(p->context, 0, sizeof *p->context);
   p->context->eip = (uint)forkret;
 
+  memset(p->shmattach, 0, sizeof(p->shmattach));
   return p;
 }
 
@@ -163,6 +164,9 @@ growproc(int n)
 
   sz = curproc->sz;
   if(n > 0){
+    if(sz >= SHMBASE || (uint)n > SHMBASE - sz)
+      return -1;
+
     if((sz = allocuvm(curproc->pgdir, sz, sz + n)) == 0)
       return -1;
   } else if(n < 0){
@@ -196,6 +200,16 @@ fork(void)
     np->state = UNUSED;
     return -1;
   }
+
+  if(shmfork(curproc, np) < 0){
+    cprintf("DEBUG: shmfork failed\n");
+    freevm(np->pgdir);
+    kfree(np->kstack);
+    np->kstack = 0;
+    np->state = UNUSED;
+    return -1;
+  }
+
   np->sz = curproc->sz;
   np->parent = curproc;
   *np->tf = *curproc->tf;
@@ -234,6 +248,7 @@ exit(void)
   if(curproc == initproc)
     panic("init exiting");
 
+  shmexit(curproc);
   // Close all open files.
   for(fd = 0; fd < NOFILE; fd++){
     if(curproc->ofile[fd]){

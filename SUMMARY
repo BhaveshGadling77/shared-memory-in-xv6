@@ -1,0 +1,16 @@
+Implemented
+-----------
+- System V shared memory provides `shmget`, `shmat`, `shmdt`, and `shmctl`.
+- Shared-memory attachments are inherited by `fork` and cleaned up on `exec` or exit.
+- POSIX shared memory supports `shm_open`, `mmap`, and `ftruncate`.
+- Shared-memory names use xv6 files and the existing `unlink` syscall.
+- `ipcs` lists shared-memory segments and reports their details and limits.
+- Separate test programs cover System V and POSIX shared memory.
+- `usertests` and `stressfs` tested correctly after adding syscall.
+
+Not Implemented
+---------------
+- Existing shared-memory mappings are not moved to defragment address space.
+- The Linux shared-memory chat demo is not included.
+- QEMU does not automatically run the tests, `usertests`, or `stressfs`.
+- Other posix syscalls are not implemented yet.

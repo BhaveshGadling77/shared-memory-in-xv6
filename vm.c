@@ -32,7 +32,7 @@ seginit(void)
 // Return the address of the PTE in page table pgdir
 // that corresponds to virtual address va.  If alloc!=0,
 // create any required page table pages.
-static pte_t *
+pte_t *
 walkpgdir(pde_t *pgdir, const void *va, int alloc)
 {
   pde_t *pde;
@@ -42,8 +42,15 @@ walkpgdir(pde_t *pgdir, const void *va, int alloc)
   if(*pde & PTE_P){
     pgtab = (pte_t*)P2V(PTE_ADDR(*pde));
   } else {
-    if(!alloc || (pgtab = (pte_t*)kalloc()) == 0)
+    if(!alloc)
       return 0;
+
+    pgtab = (pte_t*)kalloc();
+
+    if(pgtab == 0) {
+      cprintf("walkpgdir: kalloc failed for va 0x%x\n", (uint)va);
+      return 0;
+    }
     // Make sure all those PTE_P bits are zero.
     memset(pgtab, 0, PGSIZE);
     // The permissions here are overly generous, but they can
@@ -57,7 +64,7 @@ walkpgdir(pde_t *pgdir, const void *va, int alloc)
 // Create PTEs for virtual addresses starting at va that refer to
 // physical addresses starting at pa. va and size might not
 // be page-aligned.
-static int
+int
 mappages(pde_t *pgdir, void *va, uint size, uint pa, int perm)
 {
   char *a, *last;
@@ -268,12 +275,21 @@ deallocuvm(pde_t *pgdir, uint oldsz, uint newsz)
       a = PGADDR(PDX(a) + 1, 0, 0) - PGSIZE;
     else if((*pte & PTE_P) != 0){
       pa = PTE_ADDR(*pte);
+
       if(pa == 0)
         panic("kfree");
-      char *v = P2V(pa);
-      kfree(v);
+
+      // Shared-memory pages must not be freed here.
+      // They may still be used by another process.
+      if(!is_shared_page(pa)){
+        char *v = P2V(pa);
+        kfree(v);
+      }
+
+      // Remove the mapping from this process.
       *pte = 0;
     }
+
   }
   return newsz;
 }
